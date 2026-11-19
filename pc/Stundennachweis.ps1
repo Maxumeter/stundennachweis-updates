@@ -1388,7 +1388,13 @@ function Invoke-Update([switch]$OhneNeustart) {
         if ($frei) { $appMutex.ReleaseMutex() }
         Start-Sleep -Seconds 1
         $exe = Join-Path $PSScriptRoot 'Stundennachweis.exe'
-        if (Test-Path -LiteralPath $exe) { Start-Process -FilePath $exe -ArgumentList 'Kommen' -WorkingDirectory $PSScriptRoot }
+        # Nach dem Update das Fenster zeigen, damit sichtbar ist, dass das Programm wieder laeuft
+        if (Test-Path -LiteralPath $exe) {
+            Write-Protokoll 'Update: starte die neue Version.'
+            Start-Process -FilePath $exe -ArgumentList 'Beginn' -WorkingDirectory $PSScriptRoot
+        } else {
+            Write-Protokoll "Update: Stundennachweis.exe nicht gefunden in $PSScriptRoot - bitte von Hand starten."
+        }
     }
     return $true
 }
@@ -1464,12 +1470,14 @@ function Start-App([string]$Modus) {
             $appMutex.ReleaseMutex()
             $appMutex.Dispose()
             $exe = Join-Path $PSScriptRoot 'Stundennachweis.exe'
-            if (Test-Path -LiteralPath $exe) { Start-Process -FilePath $exe -ArgumentList $(if ($Modus -eq 'Zeigen') { 'Beginn' } else { 'Kommen' }) -WorkingDirectory $PSScriptRoot }
+            Write-Protokoll 'Update: starte die neue Version.'
+            if (Test-Path -LiteralPath $exe) { Start-Process -FilePath $exe -ArgumentList 'Beginn' -WorkingDirectory $PSScriptRoot }
             return
         }
     }
 
     try {
+        Write-Protokoll ("Programm gestartet (Version {0})." -f (Get-LokaleVersion))
         Add-Type -AssemblyName System.Windows.Forms, System.Drawing
         [System.Windows.Forms.Application]::EnableVisualStyles()
         Remove-AlteStempel
