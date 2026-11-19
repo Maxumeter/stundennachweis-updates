@@ -1,56 +1,16 @@
 {
   "dateien": [
     {
-      "pfad": "Anzeigen.cmd",
-      "sha256": "428e648847dcfc4c0fa5f41f4b02ed5003cd81075bf8848e0a548d97ee614364"
-    },
-    {
-      "pfad": "Deinstallieren.cmd",
-      "sha256": "560c1e5bd7a5be60df6c190e068f11d6d563ee8c730c7f2f0049daaee0663263"
-    },
-    {
-      "pfad": "Deinstallieren.ps1",
-      "sha256": "5e3ffb0c8b7d41d5320c28e397bcc57664b23135f6096c395945044947cfca4e"
-    },
-    {
-      "pfad": "Installieren.cmd",
-      "sha256": "21375abd6dfbc9824362c79b9ac259e4b800cf5519437473ad0e4b8f8ee7c3e4"
-    },
-    {
-      "pfad": "Installieren.ps1",
-      "sha256": "7ae3a79662554804506367b75b4d93e7fc04f97a8d6e663abf5a9a9ac1aab204"
-    },
-    {
-      "pfad": "LIESMICH.md",
-      "sha256": "54ae441a9480c089f80d48a7669f00af2b9907204035720c5f36ed0ede39d468"
-    },
-    {
-      "pfad": "Pruefen.cmd",
-      "sha256": "825b4956af822c1030f0ec541e5928a6f777fa08abc9851e2e9c3c9837c969a8"
-    },
-    {
       "pfad": "Stundennachweis.exe",
       "sha256": "2032315bd551ebddb55f38e3ed2a7bcebb2e172b4b036e100cf52e589e111bbf"
     },
     {
       "pfad": "Stundennachweis.ps1",
-      "sha256": "69881519d624d6e248053fc4f45e5f692914ebd1120eff4d3fbd6c259a9e7eea"
-    },
-    {
-      "pfad": "quelle/Erstellen.cmd",
-      "sha256": "6dbe46bb8bc02f230952769f9d28d1cf1af797859d61da2b6d6397e591880245"
-    },
-    {
-      "pfad": "quelle/Starter.cs",
-      "sha256": "5f0f932a18ff502d7d21337ff10dfd0b8f5cb398bb4487a1bdcf7e2e42056e62"
-    },
-    {
-      "pfad": "quelle/Stundennachweis.ico",
-      "sha256": "418c6ecedbb95dbda216ec9c08e4f94f46d516857376663f8b0662bfc842dbd7"
+      "sha256": "76d4f21e98065962eb71af6d18f0315741204efd86b8fa273d451aa3c91c4307"
     },
     {
       "pfad": "version.json",
-      "sha256": "bb6a8930304cac8ebc1b570f70e4241ced495562cc596388455cbb7ddb13841e"
+      "sha256": "c893464c2640c4df4b51b2ff15bc0e5f447f4930d57b1aaa873347d3c1a5b8d3"
     }
   ]
 }

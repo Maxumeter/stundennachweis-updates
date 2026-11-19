@@ -22,29 +22,15 @@
     .\Stundennachweis.ps1 -Aktion Beginn
     Oeffnet das Fenster fuer den Arbeitsbeginn (z. B. zum Korrigieren).
 
-.EXAMPLE
-    .\Stundennachweis.ps1 -Aktion Anzeigen
-    Zeigt die Stempel der letzten Tage an.
-
-.EXAMPLE
-    .\Stundennachweis.ps1 -Aktion Eintragen -Datum 2026-11-09 -Beginn 7:30 -Ende 16:15
-    Traegt einen Tag von Hand ein, z. B. wenn der PC nicht an war.
-
-.EXAMPLE
-    .\Stundennachweis.ps1 -Aktion Test
-    Prueft, ob die Excel-Datei gefunden und die Spalte fuer heute erkannt wird.
-    Dabei wird nichts geaendert.
+.NOTES
+    Gestartet wird ueber Stundennachweis.exe im selben Ordner. Beim ersten Start richtet sich
+    das Programm selbst ein (Aufgaben fuer Anmelden/Entsperren und Herunterfahren, Startmenue).
+    Alle Einstellungen liegen unter %LOCALAPPDATA%\Stundennachweis.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Kommen', 'Beginn', 'Gehen', 'Herunterfahren', 'Sync', 'Eintragen', 'Anzeigen', 'Test', 'Hotspot', 'HotspotAus', 'Update')]
-    [string]$Aktion = 'Sync',
-    [switch]$OhneExcel,
-    [datetime]$Datum = (Get-Date).Date,
-    [string]$Beginn,
-    [string]$Ende,
-    [string]$Pause,
-    [string]$Projekt
+    [ValidateSet('Kommen', 'Beginn', 'Herunterfahren', 'Sync', 'Hotspot', 'HotspotAus', 'Update', 'Einrichten')]
+    [string]$Aktion = 'Sync'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -903,37 +889,6 @@ function Invoke-Sync {
     if ($nachgetragen.Count -gt 0) { Write-Protokoll ('Nachgetragen: ' + ($nachgetragen -join ', ')) }
 }
 
-function Invoke-Eintragen {
-    $b = ConvertTo-Zeitspanne $Beginn
-    $e = ConvertTo-Zeitspanne $Ende
-    $p = ConvertTo-Zeitspanne $Pause
-    if ($null -eq $b -and $null -eq $e -and $null -eq $p) { throw 'Bitte mindestens -Beginn, -Ende oder -Pause angeben.' }
-
-    $sitzung = Open-Mappe (Get-DateiFuerJahr $Datum.Year)
-    $ok = $false
-    try {
-        $blatt = Get-Blatt $sitzung.Mappe $Datum
-        $spalte = Find-Spalte $blatt $Datum
-        if ($null -eq $p) {
-            $b2 = $b; if ($null -eq $b2) { $b2 = Get-Zellzeit $blatt $Z_BEGINN $spalte }
-            $e2 = $e; if ($null -eq $e2) { $e2 = Get-Zellzeit $blatt $Z_ENDE $spalte }
-            if ($null -ne $b2 -and $null -ne $e2 -and (Test-ZelleLeer $blatt $Z_PAUSE $spalte)) { $p = Get-PauseFuer ($e2 - $b2) }
-        }
-        $status = Get-Status
-        $projekte = @()
-        if ($Projekt) { $projekte = @([pscustomobject]@{ Nummer = $Projekt; Bezeichnung = ''; Anteil = '' }) }
-        elseif ($Einst.ProjektstundenEintragen) { $projekte = @(Get-Projekte) }
-        Set-Tag $blatt $spalte $Datum $b $e $p $projekte $status
-        Update-WochenCache $sitzung.Mappe $Datum.Year
-        $ok = $true
-    } finally {
-        Close-Mappe $sitzung $ok
-    }
-    $status[$Datum.ToString('yyyy-MM-dd')] = 'manuell'
-    Save-Status $status
-    Write-Protokoll ("{0}: von Hand eingetragen (Beginn {1}, Ende {2}, Pause {3})." -f $Datum.ToString('ddd dd.MM.yyyy', $DeKultur), $Beginn, $Ende, $Pause)
-}
-
 function Test-BeginnErfasst([datetime]$Tag) {
     $h = (Get-HandyTage)[$Tag.ToString('yyyy-MM-dd')]
     if ($h -and $h.Beginn) { return $true }
@@ -1144,7 +1099,7 @@ function Stop-PcHotspot {
 
 function Get-FensterEinst {
     # Gemerkte Angaben aus dem Fenster: Haken, Personalnummer, Name
-    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @(); DetailsOffen = $false; HandyCode = ''; HandyIp = ''; ExcelDatei = ''; GithubToken = ''; AutoUpdate = $true; Optionen = @{} }
+    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @(); DetailsOffen = $false; HandyCode = ''; HandyIp = ''; ExcelDatei = ''; AutoUpdate = $true; Optionen = @{} }
     try {
         if (Test-Path -LiteralPath $FensterDatei) {
             $o = Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -1155,7 +1110,6 @@ function Get-FensterEinst {
             if ($o.HandyCode) { $e.HandyCode = [string]$o.HandyCode }
             if ($o.HandyIp) { $e.HandyIp = [string]$o.HandyIp }
             if ($o.ExcelDatei) { $e.ExcelDatei = [string]$o.ExcelDatei }
-            if ($o.GithubToken) { $e.GithubToken = [string]$o.GithubToken }
             if ($null -ne $o.AutoUpdate) { $e.AutoUpdate = [bool]$o.AutoUpdate }
             if ($o.Optionen) { foreach ($pp in $o.Optionen.PSObject.Properties) { $e.Optionen[$pp.Name] = $pp.Value } }
             if ($o.PSObject.Properties['Projekte']) {
@@ -1231,25 +1185,6 @@ function Set-Kopfdaten($Mappe, [string]$Personalnummer, [string]$Name) {
 
 # ---------------------------------------------------------------- Update aus GitHub
 
-function Protect-Text([string]$Text) {
-    # Token verschluesselt speichern (nur dieser Windows-Benutzer kann ihn lesen)
-    if (-not $Text) { return '' }
-    Add-Type -AssemblyName System.Security
-    $b = [System.Security.Cryptography.ProtectedData]::Protect([System.Text.Encoding]::UTF8.GetBytes($Text), $null, 'CurrentUser')
-    return 'dpapi:' + [Convert]::ToBase64String($b)
-}
-
-function Unprotect-Text([string]$Text) {
-    if (-not $Text) { return '' }
-    if (-not $Text.StartsWith('dpapi:')) { return $Text }
-    try {
-        Add-Type -AssemblyName System.Security
-        $b = [System.Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($Text.Substring(6)), $null, 'CurrentUser')
-        return [System.Text.Encoding]::UTF8.GetString($b)
-    } catch { return '' }
-}
-
-function Get-GithubToken { return (Unprotect-Text (Get-FensterEinst).GithubToken).Trim() }
 
 function Get-LokaleVersion {
     try { return [int]((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version) } catch { return 0 }
@@ -1263,48 +1198,6 @@ function Get-UpdateStatus {
 function Set-UpdateStatus([string]$Stand, [string]$Text, [int]$Version) {
     $o = [ordered]@{ Stand = $Stand; Text = $Text; Version = $Version; Zeit = (Get-Date).ToString('s'); Gemeldet = $false }
     try { ($o | ConvertTo-Json) | Set-Content -LiteralPath $UpdateStatusDatei -Encoding UTF8 } catch { }
-}
-
-function Invoke-GithubAnfrage([string]$Pfad, [string]$Token, [switch]$Liste, [int]$TimeoutMs = 30000) {
-    # Liest eine Datei (roh) oder einen Ordner (Liste) aus dem privaten Repository
-    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    $teile = @($Pfad -split '/' | ForEach-Object { [Uri]::EscapeDataString($_) })
-    $pfadKodiert = $teile -join '/'
-    $url = 'https://api.github.com/repos/{0}/contents/{1}?ref=main' -f $UpdateRepo, $pfadKodiert
-    $req = [System.Net.HttpWebRequest]::Create($url)
-    $req.UserAgent = 'Stundennachweis-PC'
-    $req.Accept = $(if ($Liste) { 'application/vnd.github+json' } else { 'application/vnd.github.raw' })
-    $req.Headers.Add('X-GitHub-Api-Version', '2022-11-28')
-    $req.Headers.Add('Authorization', 'Bearer ' + $Token)
-    $req.Timeout = $TimeoutMs
-    $req.ReadWriteTimeout = $TimeoutMs
-    if ($req.Proxy) { $req.Proxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials }
-    try {
-        $antwort = $req.GetResponse()
-    } catch [System.Net.WebException] {
-        $r = $_.Exception.Response
-        if ($r) {
-            $code = [int]$r.StatusCode
-            if ($code -eq 401 -or $code -eq 403) { throw "GitHub lehnt den Token ab (Code $code). Bitte den Token in den Einstellungen pruefen." }
-            if ($code -eq 404) { throw "Im Repository nicht gefunden: $Pfad (Token ohne Zugriff auf $UpdateRepo?)" }
-        }
-        throw
-    }
-    $strom = $antwort.GetResponseStream()
-    $ms = New-Object System.IO.MemoryStream
-    $strom.CopyTo($ms)
-    $antwort.Close()
-    return , $ms.ToArray()
-}
-
-function Get-RepoDateien([string]$Ordner, [string]$Token) {
-    $json = [System.Text.Encoding]::UTF8.GetString((Invoke-GithubAnfrage $Ordner $Token -Liste)) | ConvertFrom-Json
-    $liste = @()
-    foreach ($e in @($json)) {
-        if ($e.type -eq 'file') { $liste += [string]$e.path }
-        elseif ($e.type -eq 'dir') { $liste += Get-RepoDateien ([string]$e.path) $Token }
-    }
-    return $liste
 }
 
 function Get-UpdateStand([int]$TimeoutMs = 8000) {
@@ -1458,6 +1351,96 @@ function Invoke-Update([switch]$OhneNeustart) {
     return $true
 }
 
+# ---------------------------------------------------------------- Einrichtung (frueher Installieren.cmd)
+
+$AufgabeKommen = 'Stundennachweis - Kommen'
+$AufgabeHerunterfahren = 'Stundennachweis - Herunterfahren'
+$Startmenue = Join-Path ([Environment]::GetFolderPath('Programs')) 'Stundennachweis.lnk'
+# Dateien aelterer Versionen, die nicht mehr gebraucht werden
+$AlteDateien = @('Anzeigen.cmd', 'Pruefen.cmd', 'Installieren.cmd', 'Installieren.ps1', 'Deinstallieren.cmd', 'Deinstallieren.ps1',
+                 'LIESMICH.md', 'einstellungen.json.alt', 'quelle\Erstellen.cmd', 'quelle\Starter.cs', 'quelle\Stundennachweis.ico')
+
+function Test-Einrichtung {
+    # Sind Aufgaben und Startmenue-Verknuepfung da und zeigen sie auf diesen Programmordner?
+    $exe = Join-Path $PSScriptRoot 'Stundennachweis.exe'
+    foreach ($name in $AufgabeKommen, $AufgabeHerunterfahren) {
+        $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if (-not $t -or -not (Test-GleicheDatei ([string]$t.Actions[0].Execute) $exe)) { return $false }
+    }
+    if (-not (Test-Path -LiteralPath $Startmenue)) { return $false }
+    try {
+        $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($Startmenue)
+        if (-not (Test-GleicheDatei $lnk.TargetPath $exe)) { return $false }
+    } catch { return $false }
+    return $true
+}
+
+function Invoke-Einrichtung {
+    # Richtet das Programm selbst ein: Aufgaben fuer Anmelden/Entsperren und Herunterfahren,
+    # Verknuepfung im Startmenue, Freigabe der Dateien. Laeuft bei jedem Start im Hintergrund
+    # und tut nur etwas, wenn etwas fehlt (z. B. erster Start oder Ordner verschoben).
+    foreach ($a in $AlteDateien) {
+        $p = Join-Path $PSScriptRoot $a
+        if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+    }
+    $q = Join-Path $PSScriptRoot 'quelle'
+    if ((Test-Path -LiteralPath $q) -and -not (Get-ChildItem -LiteralPath $q -Force -ErrorAction SilentlyContinue)) { Remove-Item -LiteralPath $q -Force -ErrorAction SilentlyContinue }
+    try { Unregister-ScheduledTask -TaskName 'Stundennachweis - Gehen' -Confirm:$false -ErrorAction Stop } catch { }
+
+    if (Test-Einrichtung) { return }
+
+    Get-ChildItem -LiteralPath $PSScriptRoot -File | Unblock-File -ErrorAction SilentlyContinue
+    $exe = Join-Path $PSScriptRoot 'Stundennachweis.exe'
+    $benutzer = "$env:USERDOMAIN\$env:USERNAME"
+    $ns = 'Root/Microsoft/Windows/TaskScheduler'
+    try {
+        $principal = New-ScheduledTaskPrincipal -UserId $benutzer -LogonType Interactive -RunLevel Limited
+        # Kommen: beim Anmelden und Entsperren; ohne Zeitbegrenzung, weitere Starts melden sich nur kurz
+        $entsperren = New-CimInstance -CimClass (Get-CimClass -Namespace $ns -ClassName MSFT_TaskSessionStateChangeTrigger) -ClientOnly
+        $entsperren.StateChange = 8
+        $entsperren.UserId = $benutzer
+        $entsperren.Enabled = $true
+        Register-ScheduledTask -TaskName $AufgabeKommen -Force `
+            -Description 'Startet den Stundennachweis und fragt beim ersten Anmelden/Entsperren des Tages den Arbeitsbeginn ab.' `
+            -Trigger @((New-ScheduledTaskTrigger -AtLogOn -User $benutzer), $entsperren) `
+            -Action (New-ScheduledTaskAction -Execute $exe -Argument 'Kommen' -WorkingDirectory $PSScriptRoot) `
+            -Principal $principal `
+            -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances Parallel) | Out-Null
+        # Herunterfahren: Ereignis 1074 (User32)
+        $runter = New-CimInstance -CimClass (Get-CimClass -Namespace $ns -ClassName MSFT_TaskEventTrigger) -ClientOnly
+        $runter.Subscription = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''User32''] and EventID=1074]]</Select></Query></QueryList>'
+        $runter.Enabled = $true
+        Register-ScheduledTask -TaskName $AufgabeHerunterfahren -Force `
+            -Description 'Traegt beim Herunterfahren das Arbeitsende ein.' `
+            -Trigger @($runter) `
+            -Action (New-ScheduledTaskAction -Execute $exe -Argument 'Herunterfahren' -WorkingDirectory $PSScriptRoot) `
+            -Principal $principal `
+            -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 3) -MultipleInstances Parallel) | Out-Null
+    } catch {
+        Write-Protokoll "Einrichtung: Aufgaben konnten nicht angelegt werden ($($_.Exception.Message))."
+    }
+    try {
+        $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($Startmenue)
+        $lnk.TargetPath = $exe
+        $lnk.WorkingDirectory = $PSScriptRoot
+        $lnk.Description = 'Stundennachweis - Fenster oeffnen'
+        $lnk.Save()
+    } catch {
+        Write-Protokoll "Einrichtung: Verknuepfung im Startmenue nicht angelegt ($($_.Exception.Message))."
+    }
+    Write-Protokoll "Eingerichtet: Aufgaben fuer Anmelden/Entsperren und Herunterfahren, Startmenue-Verknuepfung ($PSScriptRoot)."
+}
+
+function Invoke-Deinstallation {
+    # Entfernt Aufgaben und Startmenue-Verknuepfung. Die Excel-Datei bleibt unveraendert,
+    # die Benutzerdaten unter %LOCALAPPDATA%\Stundennachweis bleiben erhalten.
+    foreach ($name in $AufgabeKommen, $AufgabeHerunterfahren, 'Stundennachweis - Gehen') {
+        try { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop } catch { }
+    }
+    if (Test-Path -LiteralPath $Startmenue) { Remove-Item -LiteralPath $Startmenue -Force -ErrorAction SilentlyContinue }
+    Write-Protokoll 'Deinstalliert: Aufgaben und Startmenue-Verknuepfung entfernt.'
+}
+
 function Start-Hintergrund([string]$Was) {
     # Startet eine Aktion in einem eigenen, unsichtbaren Prozess, damit das Fenster nicht haengt.
     try {
@@ -1553,6 +1536,7 @@ function Start-App([string]$Modus) {
         # Reste eines Updates aufraeumen und nach einer neuen Version schauen
         Get-ChildItem -LiteralPath $PSScriptRoot -Recurse -Filter '*.alt' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
         Remove-UpdateReste @()   # verstuemmelte Dateien frueherer Updates (alle echten Programmdateien haben laengere Namen)
+        Start-Hintergrund 'Einrichten'   # Aufgaben/Startmenue pruefen und bei Bedarf anlegen, alte Dateien aufraeumen
         # (Update wurde schon vor dem Start geprueft)
 
         $exe = Join-Path $PSScriptRoot 'Stundennachweis.exe'
@@ -2456,7 +2440,26 @@ function Start-App([string]$Modus) {
             return $true
         }
 
-        $ef.Controls.AddRange(@($eTitel, $ePfad, $eSuchen, $eJahr, $eErgebnis, $ePruefen, $eSpeichern, $eAbbrechen, $eLinie, $eAuto, $eUpdate, $eVersion) + $optionen)
+        $eDeinst = New-Object System.Windows.Forms.Button
+        $eDeinst.Text = 'Deinstallieren ...'
+        $eDeinst.Location = New-Object System.Drawing.Point(420, 408)
+        $eDeinst.Size = New-Object System.Drawing.Size(128, 28)
+        $eDeinst.Add_Click({
+            $antwort = [System.Windows.Forms.MessageBox]::Show($ef,
+                ("Soll der Stundennachweis von diesem PC entfernt werden?`r`n`r`n" +
+                 "Entfernt werden die automatischen Starts (Anmelden/Entsperren, Herunterfahren) und die Verkn" + [char]0x00FC + "pfung im Startmen" + [char]0x00FC + ".`r`n" +
+                 "Die Excel-Datei bleibt unver" + [char]0x00E4 + "ndert. Deine Einstellungen und Zeiten bleiben unter %LOCALAPPDATA%\Stundennachweis erhalten.`r`n" +
+                 "Den Programmordner kannst du danach l" + [char]0x00F6 + "schen."),
+                'Deinstallieren', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+            if ($antwort -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+            Invoke-Deinstallation
+            if (Test-HotspotBeimStart) { Start-Hintergrund 'HotspotAus' }
+            $script:Beenden = $true
+            & $merken
+            $tray.Visible = $false
+            [System.Windows.Forms.Application]::Exit()
+        })
+        $ef.Controls.AddRange(@($eTitel, $ePfad, $eSuchen, $eJahr, $eErgebnis, $ePruefen, $eSpeichern, $eAbbrechen, $eLinie, $eAuto, $eUpdate, $eVersion, $eDeinst) + $optionen)
         $ef.AcceptButton = $eSpeichern
         $ef.CancelButton = $eAbbrechen
 
@@ -2509,8 +2512,16 @@ function Start-App([string]$Modus) {
                 $heuteP = (Get-Date).Date
                 $pBlatt = Get-Blatt $pSitzung.Mappe $heuteP
                 [void](Find-Spalte $pBlatt $heuteP)
+                $zeilen = @("Passt: Blatt '$($pBlatt.Name)', Spalte f" + [char]0x00FC + "r heute gefunden.")
+                $zeilen += ('Personalnr. (E1): ' + [string]$pBlatt.Range('E1').Text + '   Name (J1): ' + [string]$pBlatt.Range('J1').Text)
+                $pj = @()
+                for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
+                    $a = ([string]$pBlatt.Cells.Item($r, 1).Value2).Trim(); $b = ([string]$pBlatt.Cells.Item($r, 2).Value2).Trim()
+                    if ($a -or $b) { $pj += ('A{0}: {1} {2}' -f $r, $a, $(if ($b) { "($b)" } else { '' })) }
+                }
+                $zeilen += $(if ($pj.Count -gt 0) { 'Projekte: ' + ($pj -join ', ') } else { 'Projekte: noch keine Projektzeilen' })
                 $eErgebnis.ForeColor = [System.Drawing.Color]::DarkGreen
-                $eErgebnis.Text = "Passt: Blatt '$($pBlatt.Name)' und die Spalte f" + [char]0x00FC + "r heute wurden gefunden.`r`n$aufgeloest"
+                $eErgebnis.Text = $zeilen -join "`r`n"
             } catch {
                 $eErgebnis.ForeColor = [System.Drawing.Color]::DarkRed
                 $eErgebnis.Text = "Passt nicht: $($_.Exception.Message)"
@@ -2687,89 +2698,24 @@ function Start-App([string]$Modus) {
     }
 }
 
-function Invoke-Anzeigen {
-    $stempel = Get-Stempel
-    $status = Get-Status
-    $heute = (Get-Date).Date
-    Write-Host ''
-    Write-Host 'Tag              Beginn  Ende   Status'
-    Write-Host '---------------  ------  -----  ----------------'
-    for ($i = 13; $i -ge 0; $i--) {
-        $tag = $heute.AddDays(-$i)
-        $z = Get-TagesZeiten $tag $stempel
-        if (-not $z) { continue }
-        $s = $status[$tag.ToString('yyyy-MM-dd')]
-        if (-not $s) { $s = 'noch nicht eingetragen' } elseif ($s -notin 'manuell', 'uebersprungen') { $s = 'eingetragen' }
-        Write-Host ('{0,-15}  {1,-6}  {2,-5}  {3}' -f $tag.ToString('ddd dd.MM.yyyy', $DeKultur), (Format-Zeit $z.Beginn), (Format-Zeit $z.Ende), $s)
-    }
-    Write-Host ''
-    Write-Host "Protokoll: $LogDatei"
-}
-
-function Invoke-Test {
-    $pfad = Get-DateiFuerJahr $Datum.Year
-    Write-Host "Datei:    $pfad"
-    $sitzung = Open-Mappe $pfad
-    try {
-        $blatt = Get-Blatt $sitzung.Mappe $Datum
-        $spalte = Find-Spalte $blatt $Datum
-        $buchstabe = ''; $n = $spalte
-        while ($n -gt 0) { $m = ($n - 1) % 26; $buchstabe = [char](65 + $m) + $buchstabe; $n = [int][math]::Floor(($n - 1) / 26) }
-        $wo = if ($sitzung.Eigen) { 'unsichtbar im Hintergrund geoeffnet' } else { 'in deinem offenen Excel' }
-        Write-Host "Benutzt:  $($sitzung.Mappe.FullName)  ($wo)"
-        Write-Host "Blatt:    $($blatt.Name)"
-        Write-Host ("Spalte:   {0} ({1:dd.MM.yyyy})" -f $buchstabe, $Datum)
-        foreach ($pj in (Get-Projekte)) {
-            $zeile = Find-Projektzeile $blatt $pj.Nummer '' -NichtAnlegen
-            $anteil = if ($pj.Anteil) { $pj.Anteil } else { 'Rest' }
-            if ($zeile) { Write-Host "Projekt:  $($pj.Nummer) ($anteil) in Zeile $zeile" }
-            else { Write-Host "Projekt:  $($pj.Nummer) ($anteil) steht noch nicht im Blatt - wird in die erste freie Zeile geschrieben." }
-        }
-        $feT = Get-FensterEinst
-        Write-Host ''
-        Write-Host 'Personalnr. (E1) und Name (J1) je Monat:'
-        for ($m = 1; $m -le 12; $m++) {
-            try {
-                $mb = $sitzung.Mappe.Worksheets.Item($DeKultur.DateTimeFormat.GetMonthName($m))
-                $quelleE = if ($mb.Range('E1').HasFormula) { ' (Formel)' } else { '' }
-                $quelleJ = if ($mb.Range('J1').HasFormula) { ' (Formel)' } else { '' }
-                Write-Host ('  {0,-10} E1: {1,-12}{2,-10}  J1: {3}{4}' -f $mb.Name, ([string]$mb.Range('E1').Text), $quelleE, ([string]$mb.Range('J1').Text), $quelleJ)
-            } catch { }
-        }
-        Write-Host ''
-        Write-Host ("Personalnr.: in E1 steht '{0}', eingestellt ist '{1}'" -f ([string]$blatt.Range('E1').Text), $feT.Personalnummer)
-        Write-Host ("Name:        in J1 steht '{0}', eingestellt ist '{1}'" -f ([string]$blatt.Range('J1').Text), $feT.Name)
-        for ($r = $Z_PROJEKT_VON; $r -le $Z_PROJEKT_BIS; $r++) {
-            $a = ([string]$blatt.Cells.Item($r, 1).Value2).Trim(); $b = ([string]$blatt.Cells.Item($r, 2).Value2).Trim()
-            if ($a -or $b) { Write-Host ("Zeile {0}:   links (Auftragsnr.) '{1}'   rechts (Bezeichnung) '{2}'" -f $r, $a, $b) }
-        }
-        Write-Host ("Feiertage gefunden: {0}" -f @(Get-Feiertage $sitzung.Mappe).Count)
-        Write-Host 'Test OK - es wurde nichts geaendert.' -ForegroundColor Green
-    } finally {
-        Close-Mappe $sitzung $false
-    }
-}
-
 # ---------------------------------------------------------------- Start
 
 $mutex = New-Object System.Threading.Mutex($false, 'Local\Stundennachweis')
 $hatMutex = $false
 try {
     # Stempel immer sofort setzen (schnell, auch beim Herunterfahren).
-    if ($Aktion -eq 'Gehen') { Add-Stempel $Aktion }
     if ($Aktion -eq 'Herunterfahren') {
         if (Test-AutomatischerNeustart) { Write-Protokoll 'Automatischer Neustart durch Windows - kein Arbeitsende eingetragen.'; return }
         Add-Stempel 'Gehen'
         try { $Einst = Get-Einstellungen; Save-ProjektSchnappschuss (Get-Date).Date } catch { }
     }
-    if ($OhneExcel) { return }
-
     $Einst = Get-Einstellungen
     # Die App laeuft den ganzen Tag - ausserhalb der Sperre fuer die Excel-Uebertragung.
     if ($Aktion -eq 'Kommen') { Start-App 'Pruefen'; return }
     if ($Aktion -eq 'Beginn') { Start-App 'Zeigen'; return }
     if ($Aktion -eq 'Hotspot') { Invoke-HotspotStart; return }
     if ($Aktion -eq 'Update') { [void](Invoke-Update); return }
+    if ($Aktion -eq 'Einrichten') { Invoke-Einrichtung; return }
     if ($Aktion -eq 'HotspotAus') {
         try { Stop-PcHotspot; Remove-Item -LiteralPath $HotspotDatei -ErrorAction SilentlyContinue; Write-Protokoll 'PC-Hotspot ausgeschaltet.' } catch { }
         return
@@ -2779,12 +2725,8 @@ try {
     if (-not $hatMutex) { Write-Protokoll 'Ein anderer Lauf ist noch aktiv - abgebrochen.'; return }
 
     switch ($Aktion) {
-        'Gehen'     { Invoke-Sync }
         'Herunterfahren' { Invoke-Sync }
-        'Sync'      { Invoke-Sync }
-        'Eintragen' { Invoke-Eintragen }
-        'Anzeigen'  { Invoke-Anzeigen }
-        'Test'      { Invoke-Test }
+        'Sync'           { Invoke-Sync }
     }
 } catch {
     Write-Protokoll "FEHLER: $($_.Exception.Message)"
