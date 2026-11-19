@@ -66,7 +66,7 @@ $HotspotDatei = Join-Path $DatenOrdner 'hotspot.json'
 $ExcelStatusDatei = Join-Path $DatenOrdner 'excel-status.json'          # ob die Excel-Datei zuletzt beschreibbar war
 $UpdateStatusDatei = Join-Path $DatenOrdner 'update-status.json'        # Ergebnis der letzten Update-Pruefung
 $UpdateRepo = 'maxumeter/stundennachweis-updates'                      # oeffentlich, nur fertige Dateien - kein Token noetig
-$UpdateBasis = "https://raw.githubusercontent.com/$UpdateRepo/main/pc/"
+$script:UpdateStand = 'main'   # Commit-Kennung des neuesten Stands (wird vor dem Laden ermittelt)
 $Z_GESAMT = 32   # Zeile "Gesamtstunden" (Projekte + Urlaub/Feiertag/Krankheit ...)
 
 # Zeilen im Tabellenblatt (siehe 2026_Stundennachweis.xlsx)
@@ -1268,11 +1268,33 @@ function Get-RepoDateien([string]$Ordner, [string]$Token) {
     return $liste
 }
 
+function Get-UpdateStand([int]$TimeoutMs = 8000) {
+    # Kennung (Commit) des neuesten Stands im Update-Repository. Dateien dieses Stands werden von GitHub
+    # nie veraltet ausgeliefert - ueber "main" kaeme bis zu 5 Minuten lang noch die alte Version.
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $req = [System.Net.HttpWebRequest]::Create("https://api.github.com/repos/$UpdateRepo/commits/main")
+        $req.UserAgent = 'Stundennachweis-PC'
+        $req.Accept = 'application/vnd.github.sha'
+        $req.Timeout = $TimeoutMs
+        $req.ReadWriteTimeout = $TimeoutMs
+        if ($req.Proxy) { $req.Proxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials }
+        $antwort = $req.GetResponse()
+        $leser = New-Object System.IO.StreamReader($antwort.GetResponseStream())
+        $sha = $leser.ReadToEnd().Trim()
+        $antwort.Close()
+        if ($sha -match '^[0-9a-f]{40}$') { return $sha }
+    } catch {
+        Write-Protokoll "Update: neuester Stand nicht ermittelbar ($($_.Exception.Message)) - nehme 'main'."
+    }
+    return 'main'
+}
+
 function Get-UpdateDatei([string]$Pfad, [int]$TimeoutMs = 30000) {
     # Laedt eine Datei aus dem oeffentlichen Update-Repository (Ordner pc/)
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     $teile = @($Pfad -split '/' | ForEach-Object { [Uri]::EscapeDataString($_) })
-    $url = $UpdateBasis + ($teile -join '/') + '?t=' + [DateTime]::UtcNow.Ticks
+    $url = 'https://raw.githubusercontent.com/{0}/{1}/pc/{2}' -f $UpdateRepo, $script:UpdateStand, ($teile -join '/')
     $req = [System.Net.HttpWebRequest]::Create($url)
     $req.UserAgent = 'Stundennachweis-PC'
     $req.Timeout = $TimeoutMs
@@ -1303,13 +1325,14 @@ function Invoke-Update([switch]$OhneNeustart) {
     $lokal = Get-LokaleVersion
     try {
         # kurze Wartezeit, damit der Programmstart ohne Netz nicht lange haengt
+        $script:UpdateStand = Get-UpdateStand
         $remote = [int](([System.Text.Encoding]::UTF8.GetString((Get-UpdateDatei 'version.json' 8000)) | ConvertFrom-Json).version)
     } catch {
         Set-UpdateStatus 'fehler' $_.Exception.Message $lokal
         Write-Protokoll "Update-Pruefung: $($_.Exception.Message)"
         return $false
     }
-    if ($remote -le $lokal) { Set-UpdateStatus 'aktuell' "Version $lokal ist aktuell." $lokal; return $false }
+    if ($remote -le $lokal) { Set-UpdateStatus 'aktuell' "Version $lokal ist aktuell (neueste: $remote)." $lokal; return $false }
 
     Write-Protokoll "Update: neue Version $remote gefunden (installiert: $lokal). Lade ..."
     $temp = Join-Path $env:TEMP ('Stundennachweis-Update-' + [guid]::NewGuid().ToString('N'))

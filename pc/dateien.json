@@ -34,7 +34,7 @@
     },
     {
       "pfad": "Stundennachweis.ps1",
-      "sha256": "628b74f8390ea44a8194a845fa88f7b4aa7ca69ba766aeb74c4aec5d3cac77e5"
+      "sha256": "2226da72c536bb412068e1ac5e0c2eeccbe9b8ba4ff8d675775f0ca5f09eeb91"
     },
     {
       "pfad": "einstellungen.json",
@@ -54,7 +54,7 @@
     },
     {
       "pfad": "version.json",
-      "sha256": "c9ad5140ec6124e04602e4b76132d25f008bcf39bb62959558a90d404fc1f65d"
+      "sha256": "ba8098b996a73c63242c41e7234e300565fa8a06814ed67d06464f20945cbcbf"
     }
   ]
 }
