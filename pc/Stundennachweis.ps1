@@ -313,6 +313,9 @@ function Test-GleicheDatei([string]$A, [string]$B) {
 }
 
 function Open-Mappe([string]$Pfad) {
+    if ([string]::IsNullOrWhiteSpace($Pfad)) {
+        throw 'Keine Excel-Datei eingestellt (Rechtsklick auf das Uhr-Symbol -> Einstellungen).'
+    }
     if (-not (Test-Path -LiteralPath $Pfad)) {
         throw "Datei nicht gefunden: $Pfad  (Ist Laufwerk S: verbunden?)"
     }
@@ -1355,6 +1358,19 @@ function Get-Sha256([byte[]]$Daten) {
     try { return (($sha.ComputeHash($Daten) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $sha.Dispose() }
 }
 
+function Remove-UpdateReste([string[]]$SollDateien) {
+    # Frueherer Fehler: bei langen Benutzernamen landeten Update-Dateien unter verstuemmelten, kurzen Namen
+    # (z. B. "en.cmd", "n.json") im Programmordner. Diese Reste entfernen - nur kurze Namen, die nicht zum Programm gehoeren.
+    $bekannt = @($SollDateien | ForEach-Object { $_.ToLowerInvariant() })
+    foreach ($f in (Get-ChildItem -LiteralPath $PSScriptRoot -File -ErrorAction SilentlyContinue)) {
+        $n = $f.Name.ToLowerInvariant()
+        if ($bekannt -contains $n -or $n.EndsWith('.alt') -or $n -eq 'einstellungen.json') { continue }
+        if ($n.Length -le 8 -and $n -match '\.(json|cmd|ps1|md|exe|cs|ico)$') {
+            try { Remove-Item -LiteralPath $f.FullName -Force; Write-Protokoll "Update: Rest einer alten Aktualisierung entfernt ($($f.Name))." } catch { }
+        }
+    }
+}
+
 function Invoke-Update([switch]$OhneNeustart) {
     # Prueft auf eine neue Version des PC-Programms und spielt sie ein.
     # Liefert $true, wenn ein Update eingespielt wurde. Ohne -OhneNeustart wird die laufende App danach neu gestartet.
@@ -1384,22 +1400,26 @@ function Invoke-Update([switch]$OhneNeustart) {
             New-Item -ItemType Directory -Force -Path (Split-Path $ziel -Parent) | Out-Null
             [System.IO.File]::WriteAllBytes($ziel, $daten)
         }
-        # 2. Dateien ersetzen. einstellungen.json bleibt (eigene Einstellungen).
+        # 2. Dateien ersetzen - anhand der Liste aus dateien.json (nicht ueber den Pfad des
+        #    Zwischenordners: der kann bei langen Benutzernamen in Kurzschreibweise MAXIMI~1 stehen).
         #    Laufende Dateien (z. B. die EXE) werden umbenannt und dann ersetzt.
-        foreach ($datei in (Get-ChildItem -LiteralPath $temp -Recurse -File)) {
-            $rel = $datei.FullName.Substring($temp.Length + 1)
+        $sollDateien = @()
+        foreach ($eintrag in @($liste.dateien)) {
+            $rel = ([string]$eintrag.pfad).Replace('/', '\')
+            $sollDateien += $rel
+            $quelle = Join-Path $temp $rel
             $ziel = Join-Path $PSScriptRoot $rel
-            if ($rel -ieq 'einstellungen.json' -and (Test-Path -LiteralPath $ziel)) { continue }
             New-Item -ItemType Directory -Force -Path (Split-Path $ziel -Parent) | Out-Null
             try {
-                Copy-Item -LiteralPath $datei.FullName -Destination $ziel -Force -ErrorAction Stop
+                Copy-Item -LiteralPath $quelle -Destination $ziel -Force -ErrorAction Stop
             } catch {
                 $alt = "$ziel.alt"
                 Remove-Item -LiteralPath $alt -Force -ErrorAction SilentlyContinue
                 Move-Item -LiteralPath $ziel -Destination $alt -Force -ErrorAction Stop
-                Copy-Item -LiteralPath $datei.FullName -Destination $ziel -Force -ErrorAction Stop
+                Copy-Item -LiteralPath $quelle -Destination $ziel -Force -ErrorAction Stop
             }
         }
+        Remove-UpdateReste $sollDateien
         Get-ChildItem -LiteralPath $PSScriptRoot -File | Unblock-File -ErrorAction SilentlyContinue
         # Kontrolle: Ist jetzt wirklich die neue Version da? Sonst KEIN Neustart (verhindert Endlosschleifen)
         $jetzt = Get-LokaleVersion
@@ -1532,6 +1552,7 @@ function Start-App([string]$Modus) {
         if (Test-HotspotBeimStart) { Start-Hintergrund 'Hotspot' }
         # Reste eines Updates aufraeumen und nach einer neuen Version schauen
         Get-ChildItem -LiteralPath $PSScriptRoot -Recurse -Filter '*.alt' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Remove-UpdateReste @()   # verstuemmelte Dateien frueherer Updates (alle echten Programmdateien haben laengere Namen)
         # (Update wurde schon vor dem Start geprueft)
 
         $exe = Join-Path $PSScriptRoot 'Stundennachweis.exe'
