@@ -102,38 +102,51 @@ function Get-Minutengenau([datetime]$Zeit) {
     return New-Object TimeSpan $Zeit.Hour, $Zeit.Minute, 0
 }
 
-function Get-Einstellungen {
-    # Standardwerte - fehlt die Datei oder ein Eintrag, gelten diese.
-    # Die Excel-Datei und die Projekte stehen ohnehin in den Benutzerdaten (Fenster "Einstellungen").
-    $standard = [ordered]@{
-        Datei = ''; Projekt = ''; ProjektstundenEintragen = $true
-        Pause = '0:45'; PauseBisSechsStunden = '0:15'; TageRueckwirkend = 14; FensterSekunden = 30
+function Get-Standardeinstellungen {
+    return [ordered]@{
+        ProjektstundenEintragen = $true
+        Pause = '0:45'; PauseBisSechsStunden = '0:15'
+        TageRueckwirkend = 14; FensterSekunden = 30
         WochenendeUeberspringen = $true; FeiertageUeberspringen = $true
         HotspotBeimStart = $true; ExcelWarnungNachMinuten = 60
     }
-    $pfad = Join-Path $PSScriptRoot 'einstellungen.json'
-    $e = $null
-    if (Test-Path -LiteralPath $pfad) {
-        try { $e = Get-Content -LiteralPath $pfad -Raw -Encoding UTF8 | ConvertFrom-Json } catch {
-            Write-Protokoll "einstellungen.json ist beschaedigt ($($_.Exception.Message)) - es gelten die Standardwerte."
-        }
-    } else {
-        # Datei fehlt (z. B. nach einem abgebrochenen Update): mit Standardwerten neu anlegen statt abzubrechen
+}
+
+function Get-Einstellungen {
+    # Alle Einstellungen stehen in den Benutzerdaten (%LOCALAPPDATA%\Stundennachweis) und werden
+    # im Fenster "Einstellungen" geaendert. Eine einstellungen.json im Programmordner braucht es nicht mehr.
+    $standard = Get-Standardeinstellungen
+    $fe = Get-FensterEinst
+
+    # Einmalige Uebernahme aus einer alten einstellungen.json (aeltere Versionen)
+    $alt = Join-Path $PSScriptRoot 'einstellungen.json'
+    if (Test-Path -LiteralPath $alt) {
         try {
-            ($standard | ConvertTo-Json) | Set-Content -LiteralPath $pfad -Encoding UTF8
-            Write-Protokoll "einstellungen.json fehlte - mit Standardwerten neu angelegt."
+            $o = Get-Content -LiteralPath $alt -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($k in $standard.Keys) {
+                if ($o.PSObject.Properties[$k] -and -not $fe.Optionen.ContainsKey($k)) { $fe.Optionen[$k] = $o.$k }
+            }
+            if ($o.Datei -and -not $fe.ExcelDatei) { $fe.ExcelDatei = [string]$o.Datei }
+            if ($o.Projekt -and @($fe.Projekte).Count -eq 0) { $fe.Projekte = @([ordered]@{ Nummer = [string]$o.Projekt; Bezeichnung = ''; Anteil = '' }) }
+            Save-FensterEinst $fe
+            Write-Protokoll 'Einstellungen aus einstellungen.json uebernommen - die Datei wird nicht mehr gebraucht.'
         } catch { }
+        try { Move-Item -LiteralPath $alt -Destination "$alt.alt" -Force } catch { }
     }
-    if (-not $e) { $e = [pscustomobject]$standard }
-    foreach ($k in $standard.Keys) {
-        if (-not $e.PSObject.Properties[$k]) { $e | Add-Member -Force NoteProperty $k $standard[$k] }
+
+    $e = [pscustomobject]$standard
+    foreach ($k in @($fe.Optionen.Keys)) {
+        if ($standard.Contains($k)) { $e.$k = $fe.Optionen[$k] }
     }
+    # fuer aeltere Programmteile
+    $e | Add-Member -Force NoteProperty Datei ([string]$fe.ExcelDatei)
+    $e | Add-Member -Force NoteProperty Projekt ''
     if (-not $e.TageRueckwirkend) { $e.TageRueckwirkend = 14 }
     return $e
 }
 
 function Get-DateiVorlage {
-    # Im Fenster "Einstellungen" gewaehlte Datei (bleibt bei Updates erhalten), sonst einstellungen.json
+    # Im Fenster "Einstellungen" gewaehlte Datei (Benutzerdaten, bleibt bei Updates erhalten)
     $fe = Get-FensterEinst
     if ($fe.ExcelDatei) { return [string]$fe.ExcelDatei }
     return [string]$Einst.Datei
@@ -1128,7 +1141,7 @@ function Stop-PcHotspot {
 
 function Get-FensterEinst {
     # Gemerkte Angaben aus dem Fenster: Haken, Personalnummer, Name
-    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @(); DetailsOffen = $false; HandyCode = ''; HandyIp = ''; ExcelDatei = ''; GithubToken = ''; AutoUpdate = $true }
+    $e = @{ AutomatischSchliessen = $false; Personalnummer = ''; Name = ''; Projekte = @(); DetailsOffen = $false; HandyCode = ''; HandyIp = ''; ExcelDatei = ''; GithubToken = ''; AutoUpdate = $true; Optionen = @{} }
     try {
         if (Test-Path -LiteralPath $FensterDatei) {
             $o = Get-Content -LiteralPath $FensterDatei -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -1141,6 +1154,7 @@ function Get-FensterEinst {
             if ($o.ExcelDatei) { $e.ExcelDatei = [string]$o.ExcelDatei }
             if ($o.GithubToken) { $e.GithubToken = [string]$o.GithubToken }
             if ($null -ne $o.AutoUpdate) { $e.AutoUpdate = [bool]$o.AutoUpdate }
+            if ($o.Optionen) { foreach ($pp in $o.Optionen.PSObject.Properties) { $e.Optionen[$pp.Name] = $pp.Value } }
             if ($o.PSObject.Properties['Projekte']) {
                 $e.Projekte = @($o.Projekte | Where-Object { $_ -and ([string]$_.Nummer).Trim() } | ForEach-Object {
                     [ordered]@{ Nummer = ([string]$_.Nummer).Trim(); Bezeichnung = ([string]$_.Bezeichnung).Trim(); Anteil = ([string]$_.Anteil).Trim() } })
@@ -1154,7 +1168,7 @@ function Get-FensterEinst {
 }
 
 function Get-Projekte {
-    # Projekte aus dem Fenster; solange dort keins steht, das aus einstellungen.json
+    # Projekte aus dem Fenster (Benutzerdaten)
     $liste = @((Get-FensterEinst).Projekte | ForEach-Object { [pscustomobject]$_ })
     if ($liste.Count -eq 0 -and $Einst.Projekt) {
         $liste = @([pscustomobject]@{ Nummer = [string]$Einst.Projekt; Bezeichnung = ''; Anteil = '' })
@@ -1438,7 +1452,7 @@ function Start-Hintergrund([string]$Was) {
 function Start-Hintergrundsync { Start-Hintergrund 'Sync' }
 
 function Test-HotspotBeimStart {
-    # Standard: an. Abschalten in einstellungen.json mit "HotspotBeimStart": false
+    # Standard: an. Abschalten im Fenster "Einstellungen"
     return -not ($Einst.PSObject.Properties['HotspotBeimStart'] -and $Einst.HotspotBeimStart -eq $false)
 }
 
@@ -1926,7 +1940,7 @@ function Start-App([string]$Modus) {
             } elseif (-not (Test-HotspotBeimStart)) {
                 $sbHotspot.Text = 'Hotspot aus'
                 $sbHotspot.ForeColor = [System.Drawing.SystemColors]::GrayText
-                $sbHotspot.ToolTipText = ('Automatischer Hotspot ist in einstellungen.json abgeschaltet.' + "`r`n" + $start)
+                $sbHotspot.ToolTipText = ('Automatischer Hotspot ist in den Einstellungen abgeschaltet.' + "`r`n" + $start)
             } elseif ($info -and $info.Status -eq 'fehler') {
                 $naechster = $script:LetzterHotspot.AddMinutes(10).ToString('HH:mm')
                 $sbHotspot.Text = "Hotspot aus (Versuch $naechster)"
@@ -2280,7 +2294,7 @@ function Start-App([string]$Modus) {
         $ef.MaximizeBox = $false; $ef.MinimizeBox = $false
         $ef.StartPosition = 'CenterScreen'
         $ef.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-        $ef.ClientSize = New-Object System.Drawing.Size(560, 396)
+        $ef.ClientSize = New-Object System.Drawing.Size(560, 520)
         $ef.Icon = $symbol
         $ef.TopMost = $true
 
@@ -2301,35 +2315,35 @@ function Start-App([string]$Modus) {
         $eJahr.AutoSize = $true
         $eErgebnis = New-Object System.Windows.Forms.Label
         $eErgebnis.Location = New-Object System.Drawing.Point(12, 108)
-        $eErgebnis.Size = New-Object System.Drawing.Size(536, 104)
+        $eErgebnis.Size = New-Object System.Drawing.Size(536, 82)
         $ePruefen = New-Object System.Windows.Forms.Button
         $ePruefen.Text = 'Pr' + [char]0x00FC + 'fen'
-        $ePruefen.Location = New-Object System.Drawing.Point(12, 218)
+        $ePruefen.Location = New-Object System.Drawing.Point(12, 194)
         $ePruefen.Size = New-Object System.Drawing.Size(100, 32)
         $eSpeichern = New-Object System.Windows.Forms.Button
         $eSpeichern.Text = 'Speichern'
-        $eSpeichern.Location = New-Object System.Drawing.Point(342, 352)
+        $eSpeichern.Location = New-Object System.Drawing.Point(342, 476)
         $eSpeichern.Size = New-Object System.Drawing.Size(100, 32)
         $eSpeichern.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
         $eAbbrechen = New-Object System.Windows.Forms.Button
         $eAbbrechen.Text = 'Abbrechen'
-        $eAbbrechen.Location = New-Object System.Drawing.Point(448, 352)
+        $eAbbrechen.Location = New-Object System.Drawing.Point(448, 476)
         $eAbbrechen.Size = New-Object System.Drawing.Size(100, 32)
         # Update aus GitHub
         $eLinie = New-Object System.Windows.Forms.Label
         $eLinie.BorderStyle = 'Fixed3D'
-        $eLinie.Location = New-Object System.Drawing.Point(12, 260)
+        $eLinie.Location = New-Object System.Drawing.Point(12, 400)
         $eLinie.Size = New-Object System.Drawing.Size(536, 2)
         $eAuto = New-Object System.Windows.Forms.CheckBox
         $eAuto.Text = 'Beim Start automatisch aktualisieren'
-        $eAuto.Location = New-Object System.Drawing.Point(12, 276)
+        $eAuto.Location = New-Object System.Drawing.Point(12, 412)
         $eAuto.AutoSize = $true
         $eUpdate = New-Object System.Windows.Forms.Button
         $eUpdate.Text = 'Jetzt nach Update suchen'
-        $eUpdate.Location = New-Object System.Drawing.Point(12, 352)
+        $eUpdate.Location = New-Object System.Drawing.Point(12, 476)
         $eUpdate.Size = New-Object System.Drawing.Size(190, 32)
         $eVersion = New-Object System.Windows.Forms.Label
-        $eVersion.Location = New-Object System.Drawing.Point(12, 308)
+        $eVersion.Location = New-Object System.Drawing.Point(12, 442)
         $eVersion.Size = New-Object System.Drawing.Size(536, 22)
         $eVersion.ForeColor = [System.Drawing.SystemColors]::GrayText
         $zeigeVersion = {
@@ -2349,7 +2363,75 @@ function Start-App([string]$Modus) {
             Start-Hintergrund 'Update'
             $script:UpdateAnzeigeBis = (Get-Date).AddSeconds(60)
         })
-        $ef.Controls.AddRange(@($eTitel, $ePfad, $eSuchen, $eJahr, $eErgebnis, $ePruefen, $eSpeichern, $eAbbrechen, $eLinie, $eAuto, $eUpdate, $eVersion))
+        # Weitere Einstellungen (frueher in einstellungen.json)
+        $eLinie2 = New-Object System.Windows.Forms.Label
+        $eLinie2.BorderStyle = 'Fixed3D'
+        $eLinie2.Location = New-Object System.Drawing.Point(12, 236)
+        $eLinie2.Size = New-Object System.Drawing.Size(536, 2)
+        function New-EinstLabel([string]$Text, [int]$X, [int]$Y) {
+            $l = New-Object System.Windows.Forms.Label
+            $l.Text = $Text; $l.Location = New-Object System.Drawing.Point($X, ($Y + 3)); $l.AutoSize = $true
+            return $l
+        }
+        function New-EinstFeld([int]$X, [int]$Y, [int]$Breite) {
+            $t = New-Object System.Windows.Forms.TextBox
+            $t.Location = New-Object System.Drawing.Point($X, $Y); $t.Width = $Breite; $t.TextAlign = 'Center'
+            return $t
+        }
+        function New-EinstHaken([string]$Text, [int]$X, [int]$Y) {
+            $c = New-Object System.Windows.Forms.CheckBox
+            $c.Text = $Text; $c.Location = New-Object System.Drawing.Point($X, $Y); $c.AutoSize = $true
+            return $c
+        }
+        $oLPause   = New-EinstLabel ('Pause ' + [char]0x00FC + 'ber 6 Std.:') 12 248
+        $oPause    = New-EinstFeld 150 248 60
+        $oLPause6  = New-EinstLabel 'bis 6 Std.:' 290 248
+        $oPause6   = New-EinstFeld 380 248 60
+        $oProjekt  = New-EinstHaken 'Projektstunden eintragen' 12 282
+        $oHotspot  = New-EinstHaken 'Hotspot beim Start einschalten' 290 282
+        $oWoche    = New-EinstHaken ('Wochenenden ' + [char]0x00FC + 'berspringen') 12 308
+        $oFeier    = New-EinstHaken ('Feier-/Br' + [char]0x00FC + 'ckentage ' + [char]0x00FC + 'berspringen') 290 308
+        $oLWarn    = New-EinstLabel 'Warnung bei gesperrter Excel-Datei nach' 12 338
+        $oWarn     = New-EinstFeld 300 338 50
+        $oLWarn2   = New-EinstLabel 'Minuten' 356 338
+        $oLSek     = New-EinstLabel ('Fenster automatisch schlie' + [char]0x00DF + 'en nach') 12 368
+        $oSek      = New-EinstFeld 300 368 50
+        $oLSek2    = New-EinstLabel 'Sekunden' 356 368
+        $optionen = @($eLinie2, $oLPause, $oPause, $oLPause6, $oPause6, $oProjekt, $oHotspot, $oWoche, $oFeier, $oLWarn, $oWarn, $oLWarn2, $oLSek, $oSek, $oLSek2)
+
+        $ladeOptionen = {
+            $o = Get-Einstellungen
+            $oPause.Text = [string]$o.Pause; $oPause6.Text = [string]$o.PauseBisSechsStunden
+            $oProjekt.Checked = [bool]$o.ProjektstundenEintragen; $oHotspot.Checked = [bool]$o.HotspotBeimStart
+            $oWoche.Checked = [bool]$o.WochenendeUeberspringen; $oFeier.Checked = [bool]$o.FeiertageUeberspringen
+            $oWarn.Text = [string]$o.ExcelWarnungNachMinuten; $oSek.Text = [string]$o.FensterSekunden
+            foreach ($t in $oPause, $oPause6, $oWarn, $oSek) { $t.BackColor = [System.Drawing.SystemColors]::Window }
+        }
+        # Liefert $true, wenn alles gueltig war und gespeichert wurde
+        $speichereOptionen = {
+            $ok = $true
+            foreach ($t in $oPause, $oPause6) {
+                try { [void](ConvertTo-Zeitspanne $t.Text); $t.BackColor = [System.Drawing.SystemColors]::Window } catch { $t.BackColor = [System.Drawing.Color]::MistyRose; $ok = $false }
+            }
+            foreach ($t in $oWarn, $oSek) {
+                if ($t.Text.Trim() -match '^\d{1,4}$' -and [int]$t.Text.Trim() -gt 0) { $t.BackColor = [System.Drawing.SystemColors]::Window } else { $t.BackColor = [System.Drawing.Color]::MistyRose; $ok = $false }
+            }
+            if (-not $ok) { return $false }
+            $e4 = Get-FensterEinst
+            $e4.Optionen['Pause'] = Format-Zeit (ConvertTo-Zeitspanne $oPause.Text)
+            $e4.Optionen['PauseBisSechsStunden'] = Format-Zeit (ConvertTo-Zeitspanne $oPause6.Text)
+            $e4.Optionen['ProjektstundenEintragen'] = $oProjekt.Checked
+            $e4.Optionen['HotspotBeimStart'] = $oHotspot.Checked
+            $e4.Optionen['WochenendeUeberspringen'] = $oWoche.Checked
+            $e4.Optionen['FeiertageUeberspringen'] = $oFeier.Checked
+            $e4.Optionen['ExcelWarnungNachMinuten'] = [int]$oWarn.Text.Trim()
+            $e4.Optionen['FensterSekunden'] = [int]$oSek.Text.Trim()
+            Save-FensterEinst $e4
+            $script:Einst = Get-Einstellungen
+            return $true
+        }
+
+        $ef.Controls.AddRange(@($eTitel, $ePfad, $eSuchen, $eJahr, $eErgebnis, $ePruefen, $eSpeichern, $eAbbrechen, $eLinie, $eAuto, $eUpdate, $eVersion) + $optionen)
         $ef.AcceptButton = $eSpeichern
         $ef.CancelButton = $eAbbrechen
 
@@ -2414,6 +2496,7 @@ function Start-App([string]$Modus) {
         $eSpeichern.Add_Click({
             $vorlage = & $alsVorlage
             if (-not $vorlage) { & $zeigePfadInfo; return }
+            if (-not (& $speichereOptionen)) { return }   # ungueltige Eingabe ist rot markiert
             $e2 = Get-FensterEinst
             $e2.ExcelDatei = $vorlage
             Save-FensterEinst $e2
@@ -2433,6 +2516,7 @@ function Start-App([string]$Modus) {
             & $zeigePfadInfo
             $feE = Get-FensterEinst
             $eAuto.Checked = [bool]$feE.AutoUpdate
+            & $ladeOptionen
             & $zeigeVersion
             $ef.Show(); $ef.BringToFront(); $ef.Activate()
         }

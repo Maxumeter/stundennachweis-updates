@@ -22,7 +22,7 @@
     },
     {
       "pfad": "LIESMICH.md",
-      "sha256": "3b37eb3a8daca603feedbe2f7784f58d014074632014e4743ed171d674bc73ef"
+      "sha256": "54ae441a9480c089f80d48a7669f00af2b9907204035720c5f36ed0ede39d468"
     },
     {
       "pfad": "Pruefen.cmd",
@@ -34,11 +34,7 @@
     },
     {
       "pfad": "Stundennachweis.ps1",
-      "sha256": "bc5c66eab8d46723ccef8ccdd213191731ed6e5207c7a70b898047c86c2d0c3a"
-    },
-    {
-      "pfad": "einstellungen.json",
-      "sha256": "de017d89135aadbf1a00d8a4fa59db642623590b143f20435f94c45201be72e2"
+      "sha256": "4b28a1cb117eb2fa648b6800f2d0aa869032e14b87b28feb338d5339797815f8"
     },
     {
       "pfad": "quelle/Erstellen.cmd",
@@ -54,7 +50,7 @@
     },
     {
       "pfad": "version.json",
-      "sha256": "10a7ed9d68bc5ca95c12c606a99c0feb7cd56c94edc3a7c9cd61fd5f9d70f9e8"
+      "sha256": "c723ff44caca58b92ff83e9cccd2a757cd9d30988df88d5731570f68f980e63c"
     }
   ]
 }

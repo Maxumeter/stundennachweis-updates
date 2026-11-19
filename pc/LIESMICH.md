@@ -60,7 +60,7 @@ Die Anzeige aktualisiert sich alle 15 Sekunden.
 Unten im Fenster gibt es den Haken **„Automatisch schließen nach 30 s“**. Das Fenster merkt sich die Einstellung.
 Ist er gesetzt, läuft auf dem Knopf ein Countdown mit. Bei 0 wird die angezeigte Uhrzeit übernommen und das Fenster schließt sich.
 Sobald du ins Uhrzeitfeld tippst oder klickst, stoppt der Countdown.
-Die Sekunden stellst du in `einstellungen.json` unter `FensterSekunden` ein.
+Die Sekunden stellst du unter „Einstellungen …“ ein.
 
 Darunter stehen **Personalnr.** und **Name**. Die Personalnummer kommt in Zelle E1, der Name in J1, und zwar in jedem Monatsblatt.
 Zellen, die schon eine Formel haben (z. B. `=Oktober!J1`), bleiben unverändert.
@@ -103,7 +103,7 @@ Gibt es zu einer Nummer im Monatsblatt noch keine Zeile, legt das Skript sie in 
 Zurückliegende Tage bleiben, wie sie sind.
 
 Alle Angaben im Fenster werden sofort gespeichert und stehen beim nächsten Mal wieder da, auch nach einem Neustart.
-Steht in der Tabelle kein Projekt, gilt die Nummer aus `einstellungen.json`.
+
 
 Ist der Beginn für heute erfasst, erscheint das Fenster nicht mehr. Am Wochenende erscheint es gar nicht.
 Zum Korrigieren öffnest du es jederzeit über das Symbol neben der Uhr. Einen geänderten Beginn übernimmst du mit „Eintragen“.
@@ -120,7 +120,7 @@ Ist die Datei bei dir in Excel offen, schreibt das Skript direkt hinein und spei
 ### Wenn die Excel-Datei nicht erreichbar ist
 
 **Statusleiste:** In der Mitte steht `Excel: ok` (grün). Ist die Datei nicht beschreibbar, steht dort z. B. `Excel: gesperrt seit 09:12` oder `Excel: nicht erreichbar seit 09:12` (rot). Den Grund siehst du, wenn du mit der Maus darüberfährst.
-Ist die Datei länger als 60 Minuten nicht beschreibbar, erscheint neben der Uhr eine Warnung, danach alle 2 Stunden erneut. Die Minuten stellst du in `einstellungen.json` unter `ExcelWarnungNachMinuten` ein.
+Ist die Datei länger als 60 Minuten nicht beschreibbar, erscheint neben der Uhr eine Warnung, danach alle 2 Stunden erneut. Die Minuten stellst du unter „Einstellungen …“ ein.
 Solange die Datei gesperrt ist, zählt auch der **heutige** Tag zu den offenen Tagen. Er erscheint im orangen Hinweis und wird mit den 30-Minuten-Versuchen nachgetragen.
 
 Die Datei liegt auf dem Netzlaufwerk. Manchmal ist es nicht verbunden (VPN, Netzwerk), die Datei ist von jemand anderem geöffnet, oder Windows fährt zu schnell herunter.
@@ -139,7 +139,7 @@ Neustarts, die Windows selbst auslöst (z. B. durch Updates in der Nacht), zähl
 Das Programm schaut bei jedem Start im **öffentlichen** Update-Repository `maxumeter/stundennachweis-updates` nach einer neuen Version. Ein Token ist nicht nötig.
 Dort liegen nur die fertigen Programmdateien, kein Quelltext, keine persönlichen Daten.
 1. Ist in `pc/version.json` eine höhere Version, werden alle Dateien geladen und per Prüfsumme (SHA-256) kontrolliert.
-2. Erst wenn alles stimmt, werden die Dateien im Programmordner ersetzt. **`einstellungen.json` bleibt unverändert.**
+2. Erst wenn alles stimmt, werden die Dateien im Programmordner ersetzt. Deine Einstellungen liegen nicht im Programmordner und bleiben unverändert.
 3. Das Programm startet in der neuen Version neu. Neben der Uhr erscheint „Auf Version N aktualisiert“.
 
 Die Prüfung läuft beim Start **zuerst**. Muss aktualisiert werden, passiert in diesem Durchgang nur das Update: kein Hotspot, keine Übertragung in die Excel-Datei, keine Handy-Suche und kein Fenster.
@@ -150,13 +150,8 @@ Unter „Einstellungen …“ siehst du die installierte Version, kannst „Jetz
 
 1. Diesen Ordner `stundennachweis` an einen festen Ort auf deinem Arbeits-PC kopieren,
    z. B. nach `Dokumente\Stundennachweis`. Nicht auf das Netzlaufwerk, nicht in „Downloads“.
-2. `einstellungen.json` mit dem Editor öffnen und prüfen:
-   - `Datei` – Pfad zur Excel-Datei. `{Jahr}` wird automatisch ersetzt, 2027 läuft also von allein weiter.
-   - `Projekt` – Auftragsnummer, auf die gebucht wird
-   - `Pause` / `PauseBisSechsStunden` – Pausenzeiten (0:45 erst über 6 Stunden, sonst 0:15)
-   - `ProjektstundenEintragen` – auf `false` setzen, wenn nur Beginn, Ende und Pause eingetragen werden sollen
-3. Doppelklick auf **`Installieren.cmd`**.
-   Am Ende muss „Test OK“ in Grün erscheinen.
+2. Doppelklick auf **`Installieren.cmd`**.
+   Danach: Rechtsklick auf das Uhr-Symbol → **„Einstellungen …“** → Excel-Datei auswählen und speichern.
 
 Ab dann läuft alles automatisch. **Wichtig:** Zum Feierabend den PC herunterfahren.
 Hattest du schon eine frühere Version installiert, `Installieren.cmd` einfach noch einmal ausführen.
@@ -168,7 +163,7 @@ Die Aufgaben werden dabei aktualisiert, die alte Aufgabe für das Sperren wird e
 **Excel-Datei wählen:** Rechtsklick auf das Uhr-Symbol und **„Einstellungen …“**. Mit „Durchsuchen …“ wählst du den Stundennachweis aus.
 - Mit „Jahreszahl im Pfad automatisch anpassen“ nimmt das Programm im neuen Jahr von selbst die neue Datei, z. B. `...\2027\2027_Stundennachweis ...`.
 - „Prüfen“ öffnet die Datei kurz und kontrolliert, ob Monatsblatt und Spalte für heute gefunden werden.
-- Die Auswahl wird unter `%LOCALAPPDATA%\Stundennachweis` gespeichert und bleibt bei Updates erhalten. Sie hat Vorrang vor `Datei` in `einstellungen.json`.
+- Die Auswahl wird unter `%LOCALAPPDATA%\Stundennachweis` gespeichert und bleibt bei Updates erhalten.
 
 **Was wurde erfasst?** Doppelklick auf `Anzeigen.cmd`.
 
@@ -222,8 +217,23 @@ Das geht über Rechtsklick auf das Uhr-Symbol und **„Vom Handy übernehmen …
 - Alle 10 Minuten wird geprüft, ob er noch an ist, und er wird notfalls wieder eingeschaltet. Windows schaltet ihn sonst nach einigen Minuten ohne verbundenes Gerät ab.
 - WLAN-Name und Passwort stehen in „Vom Handy übernehmen …“ und im Protokoll.
 - Beim *Beenden* über das Menü am Symbol wird der Hotspot wieder ausgeschaltet.
-- Abschalten lässt sich das in `einstellungen.json` mit `"HotspotBeimStart": false`.
+- Abschalten lässt sich das unter „Einstellungen …“ (Haken „Hotspot beim Start einschalten“).
 - Der Hotspot braucht eine bestehende Netzverbindung des PCs (LAN oder WLAN). Ist die beim Start noch nicht da, klappt es beim nächsten Versuch nach 10 Minuten.
 - Hat die IT den mobilen Hotspot gesperrt, steht das im Protokoll.
 
 Einzelheiten stehen in `stundennachweis-app/LIESMICH.md`.
+
+## Einstellungen
+
+Alle Einstellungen änderst du über Rechtsklick auf das Uhr-Symbol → **„Einstellungen …“**:
+- Excel-Datei
+- Pausen (über 6 Stunden, bis 6 Stunden)
+- Projektstunden eintragen
+- Wochenenden sowie Feier- und Brückentage überspringen
+- Hotspot beim Start einschalten
+- Warnung bei gesperrter Excel-Datei nach … Minuten
+- Fenster automatisch schließen nach … Sekunden
+- Automatisch aktualisieren
+
+Gespeichert wird alles in `%LOCALAPPDATA%\Stundennachweis`, also nicht im Programmordner. Updates und neu entpackte Dateien ändern daran nichts.
+Eine `einstellungen.json` im Programmordner braucht das Programm nicht mehr. Ist noch eine aus einer älteren Version da, übernimmt das Programm ihre Werte einmalig und räumt sie weg.
