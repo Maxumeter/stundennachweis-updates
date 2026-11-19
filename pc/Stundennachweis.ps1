@@ -1365,6 +1365,9 @@ function Invoke-Update([switch]$OhneNeustart) {
             }
         }
         Get-ChildItem -LiteralPath $PSScriptRoot -File | Unblock-File -ErrorAction SilentlyContinue
+        # Kontrolle: Ist jetzt wirklich die neue Version da? Sonst KEIN Neustart (verhindert Endlosschleifen)
+        $jetzt = Get-LokaleVersion
+        if ($jetzt -ne $remote) { throw "Update unvollstaendig - nach dem Einspielen ist Version $jetzt da statt $remote." }
     } catch {
         Set-UpdateStatus 'fehler' "Update fehlgeschlagen: $($_.Exception.Message)" $lokal
         Write-Protokoll "Update fehlgeschlagen: $($_.Exception.Message)"
@@ -1463,7 +1466,13 @@ function Start-App([string]$Modus) {
     # Zuerst nach einem Update schauen. Muss aktualisiert werden, passiert NUR das:
     # kein Hotspot, keine Excel-Uebertragung, kein Fenster - danach startet die neue Version.
     $feU = Get-FensterEinst
-    if ($feU.AutoUpdate) {
+    # Sicherung gegen Neustart-Schleifen: kurz nach einem Update(-Versuch) nicht gleich wieder aktualisieren
+    $usLetzt = Get-UpdateStatus
+    $kurzZuvor = $false
+    if ($usLetzt -and $usLetzt.Stand -in 'installiert', 'fehler') {
+        try { $kurzZuvor = (((Get-Date) - [datetime]::Parse([string]$usLetzt.Zeit)).TotalMinutes -lt 3) } catch { }
+    }
+    if ($feU.AutoUpdate -and -not $kurzZuvor) {
         $aktualisiert = $false
         try { $aktualisiert = [bool](Invoke-Update -OhneNeustart) } catch { Write-Protokoll "Update beim Start: $($_.Exception.Message)" }
         if ($aktualisiert) {
