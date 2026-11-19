@@ -103,10 +103,32 @@ function Get-Minutengenau([datetime]$Zeit) {
 }
 
 function Get-Einstellungen {
+    # Standardwerte - fehlt die Datei oder ein Eintrag, gelten diese.
+    # Die Excel-Datei und die Projekte stehen ohnehin in den Benutzerdaten (Fenster "Einstellungen").
+    $standard = [ordered]@{
+        Datei = ''; Projekt = ''; ProjektstundenEintragen = $true
+        Pause = '0:45'; PauseBisSechsStunden = '0:15'; TageRueckwirkend = 14; FensterSekunden = 30
+        WochenendeUeberspringen = $true; FeiertageUeberspringen = $true
+        HotspotBeimStart = $true; ExcelWarnungNachMinuten = 60
+    }
     $pfad = Join-Path $PSScriptRoot 'einstellungen.json'
-    if (-not (Test-Path -LiteralPath $pfad)) { throw "Einstellungsdatei fehlt: $pfad" }
-    $e = Get-Content -LiteralPath $pfad -Raw -Encoding UTF8 | ConvertFrom-Json
-    if (-not $e.TageRueckwirkend) { $e | Add-Member -Force NoteProperty TageRueckwirkend 14 }
+    $e = $null
+    if (Test-Path -LiteralPath $pfad) {
+        try { $e = Get-Content -LiteralPath $pfad -Raw -Encoding UTF8 | ConvertFrom-Json } catch {
+            Write-Protokoll "einstellungen.json ist beschaedigt ($($_.Exception.Message)) - es gelten die Standardwerte."
+        }
+    } else {
+        # Datei fehlt (z. B. nach einem abgebrochenen Update): mit Standardwerten neu anlegen statt abzubrechen
+        try {
+            ($standard | ConvertTo-Json) | Set-Content -LiteralPath $pfad -Encoding UTF8
+            Write-Protokoll "einstellungen.json fehlte - mit Standardwerten neu angelegt."
+        } catch { }
+    }
+    if (-not $e) { $e = [pscustomobject]$standard }
+    foreach ($k in $standard.Keys) {
+        if (-not $e.PSObject.Properties[$k]) { $e | Add-Member -Force NoteProperty $k $standard[$k] }
+    }
+    if (-not $e.TageRueckwirkend) { $e.TageRueckwirkend = 14 }
     return $e
 }
 
