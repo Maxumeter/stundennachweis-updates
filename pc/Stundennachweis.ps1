@@ -1954,7 +1954,11 @@ function Start-App([string]$Modus) {
 
             # --- Excel-Datei
             $es = Get-ExcelStatus
-            if (-not $es) {
+            if (-not (Get-DateiVorlage)) {
+                $sbExcel.Text = 'Excel: keine Datei gew' + [char]0x00E4 + 'hlt'
+                $sbExcel.ForeColor = [System.Drawing.Color]::DarkRed
+                $sbExcel.ToolTipText = 'Rechtsklick auf das Uhr-Symbol -> Einstellungen -> Excel-Datei ausw' + [char]0x00E4 + 'hlen.'
+            } elseif (-not $es) {
                 $sbExcel.Text = 'Excel: -'
                 $sbExcel.ForeColor = [System.Drawing.SystemColors]::GrayText
                 $sbExcel.ToolTipText = 'Noch nicht in die Excel-Datei geschrieben.'
@@ -2641,6 +2645,13 @@ function Start-App([string]$Modus) {
             try { ($usStart | ConvertTo-Json) | Set-Content -LiteralPath $UpdateStatusDatei -Encoding UTF8 } catch { }
         }
         if ($Modus -eq 'Zeigen' -or (& $brauchtBeginn)) { & $zeigen }
+        # Noch keine Excel-Datei gewaehlt? Dann gleich die Einstellungen oeffnen.
+        if (-not (Get-DateiVorlage)) {
+            Write-Protokoll 'Keine Excel-Datei eingestellt - oeffne die Einstellungen.'
+            & $zeigeEinstellungen
+            $eErgebnis.ForeColor = [System.Drawing.Color]::DarkRed
+            $eErgebnis.Text = 'Bitte zuerst die Excel-Datei (Stundennachweis) ausw' + [char]0x00E4 + 'hlen und speichern.'
+        }
 
         [System.Windows.Forms.Application]::Run()
 
