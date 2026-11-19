@@ -2259,7 +2259,7 @@ function Start-App([string]$Modus) {
         $eLinie.Location = New-Object System.Drawing.Point(12, 260)
         $eLinie.Size = New-Object System.Drawing.Size(536, 2)
         $eAuto = New-Object System.Windows.Forms.CheckBox
-        $eAuto.Text = 'Beim Start automatisch aktualisieren (aus ' + $UpdateRepo + ')'
+        $eAuto.Text = 'Beim Start automatisch aktualisieren'
         $eAuto.Location = New-Object System.Drawing.Point(12, 276)
         $eAuto.AutoSize = $true
         $eUpdate = New-Object System.Windows.Forms.Button
