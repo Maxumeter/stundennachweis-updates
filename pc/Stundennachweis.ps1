@@ -1441,6 +1441,180 @@ function Invoke-Deinstallation {
     Write-Protokoll 'Deinstalliert: Aufgaben und Startmenue-Verknuepfung entfernt.'
 }
 
+# ---------------------------------------------------------------- Anleitung (eigenes Fenster)
+
+$AnleitungHtml = @'
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge">
+<style>
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; color: #222; margin: 18px 22px; line-height: 1.45; }
+h1 { font-size: 17pt; color: #216fbf; margin: 0 0 4px 0; }
+h2 { font-size: 13pt; color: #216fbf; margin: 22px 0 6px 0; border-bottom: 1px solid #d6e4f2; padding-bottom: 3px; }
+h3 { font-size: 11pt; margin: 14px 0 4px 0; }
+p { margin: 6px 0; }
+ul, ol { margin: 4px 0 6px 0; padding-left: 22px; }
+li { margin: 2px 0; }
+table { border-collapse: collapse; margin: 6px 0 10px 0; width: 100%; }
+th, td { border: 1px solid #cfd8e3; padding: 4px 7px; text-align: left; vertical-align: top; }
+th { background: #eef4fa; }
+.box { background: #f3f8fd; border-left: 4px solid #216fbf; padding: 6px 10px; margin: 8px 0; }
+.warn { background: #fff6e8; border-left: 4px solid #e65100; padding: 6px 10px; margin: 8px 0; }
+.k { font-weight: 600; }
+.inh a { color: #216fbf; text-decoration: none; }
+</style></head><body>
+<h1>Stundennachweis &ndash; Anleitung</h1>
+<p>So arbeiten das PC-Programm und die Handy-App zusammen, damit deine Arbeitszeiten ohne Abtippen im Excel-Stundennachweis landen.</p>
+
+<div class="inh"><p>
+<a href="#ueberblick">1. &Uuml;berblick</a> &middot; <a href="#pc">2. Einrichten am PC</a> &middot; <a href="#app">3. Einrichten der App</a> &middot;
+<a href="#buero">4. Ein Tag im B&uuml;ro</a> &middot; <a href="#unterwegs">5. Ein Tag unterwegs</a> &middot; <a href="#uebertragung">6. &Uuml;bertragung Handy &rarr; PC</a> &middot;
+<a href="#projekte">7. Projekte</a> &middot; <a href="#excel">8. Was in Excel landet</a> &middot; <a href="#korrektur">9. Korrigieren</a> &middot;
+<a href="#status">10. Statusleiste</a> &middot; <a href="#updates">11. Updates</a> &middot; <a href="#probleme">12. Probleme</a>
+</p></div>
+
+<h2 id="ueberblick">1. &Uuml;berblick</h2>
+<table>
+<tr><th></th><th>PC-Programm</th><th>Handy-App</th></tr>
+<tr><td class="k">Wof&uuml;r</td><td>Tage am B&uuml;ro-PC und das Eintragen in die Excel-Datei</td><td>Tage ohne PC: Baustelle, Kunde, Au&szlig;endienst</td></tr>
+<tr><td class="k">Beginn</td><td>Fenster oben rechts beim ersten Anmelden/Entsperren</td><td>Knopf <b>KOMMEN</b></td></tr>
+<tr><td class="k">Ende</td><td>beim Herunterfahren des PCs</td><td>Knopf <b>GEHEN</b></td></tr>
+<tr><td class="k">Excel</td><td>tr&auml;gt alles ein (auch die Handy-Zeiten)</td><td>schickt die Zeiten an den PC</td></tr>
+</table>
+<div class="box"><b>Grundregel:</b> Das Handy hat immer Vorrang. Gibt es f&uuml;r einen Tag Zeiten vom Handy, gelten diese &ndash; auch wenn der PC etwas anderes erfasst hat.</div>
+
+<h2 id="pc">2. Einrichten am PC (einmalig)</h2>
+<ol>
+<li>Die drei Dateien <b>Stundennachweis.exe</b>, <b>Stundennachweis.ps1</b> und <b>version.json</b> in einen festen Ordner legen, z.&nbsp;B. <i>Dokumente\Stundennachweis</i>.</li>
+<li><b>Stundennachweis.exe</b> doppelklicken. Das Programm richtet sich selbst ein: Start beim Anmelden/Entsperren, Arbeitsende beim Herunterfahren, Eintrag im Startmen&uuml;.</li>
+<li>Im Fenster <b>Einstellungen</b> mit &bdquo;Durchsuchen &hellip;&ldquo; den Excel-Stundennachweis ausw&auml;hlen, &bdquo;Pr&uuml;fen&ldquo; und &bdquo;Speichern&ldquo;.</li>
+<li>Im Hauptfenster den Bereich <b>&#9654; Personalnummer, Name und Projekte</b> aufklappen und eintragen &ndash; oder das sp&auml;ter von der App &uuml;bernehmen lassen.</li>
+</ol>
+<p>Das Programm l&auml;uft danach unsichtbar im Hintergrund. Das <b>Uhr-Symbol</b> unten rechts neben der Uhrzeit (evtl. hinter dem Pfeil <b>^</b>) &ouml;ffnet das Fenster; ein Rechtsklick darauf zeigt das Men&uuml;.</p>
+
+<h2 id="app">3. Einrichten der App (einmalig)</h2>
+<ol>
+<li>Die Datei <b>Stundennachweis.apk</b> aufs Handy bringen und antippen. Android einmal erlauben, Apps aus dieser Quelle zu installieren.</li>
+<li>Beim ersten Start &ouml;ffnen sich die <b>Einstellungen</b> (Zahnrad unten links): vollst&auml;ndigen Namen und Personalnummer eintragen.</li>
+<li>Unter <b>Projekte</b> mindestens ein Projekt mit Auftragsnummer und Bezeichnung anlegen.</li>
+<li><b>Mit dem PC koppeln:</b> In der App im Zahnrad-Men&uuml; steht der 6-stellige <b>Code f&uuml;r den PC</b>. Am PC: Rechtsklick auf das Uhr-Symbol &rarr; <b>Vom Handy &uuml;bernehmen &hellip;</b> &rarr; Code eintragen &rarr; <b>&Uuml;bernehmen</b>. Das ist nur einmal n&ouml;tig.</li>
+</ol>
+
+<h2 id="buero">4. Ein Tag im B&uuml;ro</h2>
+<ol>
+<li><b>Anmelden:</b> Oben rechts erscheint das Fenster mit der aktuellen Uhrzeit als Arbeitsbeginn. Bei Bedarf &uuml;berschreiben, <b>Eintragen</b>.</li>
+<li>Darunter steht das <b>Arbeitsende des Vortags</b> &ndash; kurz pr&uuml;fen und bei Bedarf korrigieren.</li>
+<li>W&auml;hrend des Tages zeigt das Fenster die Stunden von heute, der Woche und je Projekt.</li>
+<li><b>Feierabend: PC herunterfahren.</b> Die Uhrzeit wird als Arbeitsende eingetragen, dazu Pause und Projektstunden. Nur sperren (Windows-Taste + L) z&auml;hlt nicht als Feierabend.</li>
+</ol>
+
+<h2 id="unterwegs">5. Ein Tag unterwegs (mit der App)</h2>
+<ol>
+<li>Bei Arbeitsbeginn <b>KOMMEN</b> tippen &ndash; danach ist nur noch GEHEN aktiv.</li>
+<li>Arbeitest du an mehreren Projekten, tippe beim jeweiligen Projekt auf <b>aktiv</b> (gr&uuml;n). Ab diesem Moment z&auml;hlt die Zeit f&uuml;r dieses Projekt.</li>
+<li>Bei Arbeitsende <b>GEHEN</b> tippen. Wieder da? Einfach erneut KOMMEN &ndash; der Beginn bleibt, das Ende wird gel&ouml;scht.</li>
+<li>Die Zeiten bleiben auf dem Handy, bis sie beim n&auml;chsten Kontakt mit dem PC &uuml;bertragen werden (siehe 6).</li>
+</ol>
+
+<h2 id="uebertragung">6. &Uuml;bertragung Handy &rarr; PC</h2>
+<p>Die &Uuml;bertragung l&auml;uft <b>automatisch</b>. Voraussetzungen:</p>
+<ul>
+<li>Die App ist <b>ge&ouml;ffnet</b> (im Vordergrund).</li>
+<li>Das Handy ist im WLAN des PCs: am einfachsten im <b>Hotspot des PCs</b> &ndash; den schaltet das Programm beim Start selbst ein. WLAN-Name und Passwort siehst du, wenn du mit der Maus &uuml;ber &bdquo;Hotspot an&ldquo; in der Statusleiste f&auml;hrst. Alternativ: gleiches WLAN oder Hotspot des Handys.</li>
+<li>PC und App sind einmal gekoppelt (Code, siehe 3).</li>
+</ul>
+<p>Der PC schaut alle 15 Sekunden nach. Danach siehst du in der App &bdquo;Alles beim PC&ldquo;, am PC den Hinweis &bdquo;Vom Handy &uuml;bernommen&ldquo;. &Uuml;bertragen werden Zeiten, Projektverteilung, Projektliste, Name und Personalnummer.</p>
+
+<h2 id="projekte">7. Projekte und Stunden</h2>
+<table>
+<tr><th>So</th><th>Bedeutung</th></tr>
+<tr><td><b>aktiv</b>-Knopf (App)</td><td>Die Zeit z&auml;hlt f&uuml;r das gr&uuml;ne Projekt, bis du ein anderes antippst. Diese Zeiten gelten dann f&uuml;r den Tag.</td></tr>
+<tr><td>Anteil <b>2:30</b> oder <b>2,5</b></td><td>feste Stunden</td></tr>
+<tr><td>Anteil <b>40%</b></td><td>Anteil der Arbeitszeit</td></tr>
+<tr><td>Anteil <b>leer</b></td><td>der Rest (mehrere leere teilen ihn gleichm&auml;&szlig;ig)</td></tr>
+</table>
+<p>Es wird immer die ganze Arbeitszeit gebucht; die Pause wird vorher abgezogen.</p>
+
+<h2 id="excel">8. Was in der Excel-Datei landet</h2>
+<table>
+<tr><th>Wo</th><th>Was</th></tr>
+<tr><td>Zeile 4 / 5</td><td>Arbeitsbeginn / Arbeitsende (Spalte des Tages)</td></tr>
+<tr><td>Zeile 6</td><td>Pause: 0:15, &uuml;ber 6 Stunden Anwesenheit 0:45 (in den Einstellungen &auml;nderbar)</td></tr>
+<tr><td>ab Zeile 8, Spalte A / B</td><td>Auftragsnummer / Bezeichnung, daneben die Stunden des Tages</td></tr>
+<tr><td>E1 / J1</td><td>Personalnummer / Name</td></tr>
+</table>
+<ul>
+<li>Wochenenden, Feier- und Br&uuml;ckentage sowie Tage mit Urlaub/Krankheit bleiben unber&uuml;hrt (Tage vom Handy werden trotzdem eingetragen).</li>
+<li>Ist die Datei gesperrt oder nicht erreichbar, bleibt alles gespeichert und wird automatisch nachgetragen.</li>
+<li>Im neuen Jahr nimmt das Programm von selbst die Datei des neuen Jahres (Haken &bdquo;Jahreszahl anpassen&ldquo;).</li>
+</ul>
+
+<h2 id="korrektur">9. Korrigieren</h2>
+<ul>
+<li><b>Arbeitsbeginn heute:</b> im Fenster &uuml;berschreiben, <b>Eintragen</b>.</li>
+<li><b>Arbeitsende gestern:</b> im Fenster in der Zeile &bdquo;Arbeitsende &hellip;&ldquo; &uuml;berschreiben, <b>Eintragen</b>.</li>
+<li><b>Andere Tage:</b> in der App unter &bdquo;Erfasste Tage&ldquo; antippen und &auml;ndern &ndash; oder direkt in der Excel-Datei.</li>
+<li>Was du in Excel von Hand &auml;nderst, &uuml;berschreibt das Programm nicht (au&szlig;er es kommen sp&auml;ter Zeiten vom Handy f&uuml;r diesen Tag).</li>
+</ul>
+
+<h2 id="status">10. Statusleiste unten im Fenster</h2>
+<table>
+<tr><th>Anzeige</th><th>Bedeutung</th></tr>
+<tr><td>Hotspot an seit 07:46 &ndash; 1 Ger&auml;t</td><td>PC-Hotspot l&auml;uft; Maus dar&uuml;ber zeigt WLAN-Name und Passwort</td></tr>
+<tr><td>Excel: ok / gesperrt / keine Datei gew&auml;hlt</td><td>Zustand der Excel-Datei beim letzten Zugriff</td></tr>
+<tr><td>Handy: verbunden / zuletzt 08:12</td><td>Kontakt zur App</td></tr>
+</table>
+
+<h2 id="updates">11. Updates</h2>
+<p>PC-Programm und App aktualisieren sich selbst. Der PC beim Start ohne R&uuml;ckfrage; die App fragt &bdquo;Update verf&uuml;gbar&ldquo;, danach best&auml;tigst du im Android-Installer. Deine Daten bleiben jeweils erhalten.</p>
+
+<h2 id="probleme">12. Wenn etwas nicht klappt</h2>
+<table>
+<tr><th>Problem</th><th>L&ouml;sung</th></tr>
+<tr><td>Fenster erscheint nicht</td><td>Uhr-Symbol neben der Uhr anklicken (evtl. hinter <b>^</b>), oder Stundennachweis im Startmen&uuml;.</td></tr>
+<tr><td>Handy wird nicht gefunden</td><td>App &ouml;ffnen, Handy im Hotspot des PCs? Code richtig (Statusleiste &bdquo;Code passt nicht&ldquo;)? Notfalls unter &bdquo;Vom Handy &uuml;bernehmen&ldquo; die Adresse aus der App eintragen.</td></tr>
+<tr><td>Excel: gesperrt</td><td>Jemand hat die Datei offen &ndash; das Programm tr&auml;gt nach, sobald sie frei ist.</td></tr>
+<tr><td>Arbeitsende fehlt</td><td>PC wurde nicht heruntergefahren &ndash; am n&auml;chsten Morgen im Fenster nachtragen.</td></tr>
+<tr><td>Etwas ist unklar</td><td>Rechtsklick auf das Uhr-Symbol &rarr; <b>Protokoll anzeigen</b>. Dort steht, was das Programm gemacht hat.</td></tr>
+</table>
+<div class="warn">Zum Feierabend den PC <b>herunterfahren</b> &ndash; nur dann wird das Arbeitsende automatisch eingetragen.</div>
+</body></html>
+'@
+
+function Show-Anleitung {
+    # Eigenes Fenster mit der Anleitung (PC-Programm und Handy-App). Nur ein Fenster gleichzeitig.
+    if ($script:Anleitung -and -not $script:Anleitung.IsDisposed) {
+        $script:Anleitung.WindowState = 'Normal'
+        $script:Anleitung.Show()
+        $script:Anleitung.Activate()
+        return
+    }
+    $af = New-Object System.Windows.Forms.Form
+    $af.Text = 'Stundennachweis - Anleitung'
+    $af.StartPosition = 'CenterScreen'
+    $af.Size = New-Object System.Drawing.Size(820, 760)
+    $af.MinimumSize = New-Object System.Drawing.Size(500, 400)
+    if ($script:Symbol) { $af.Icon = $script:Symbol }
+    $wb = New-Object System.Windows.Forms.WebBrowser
+    $wb.Dock = 'Fill'
+    $wb.ScriptErrorsSuppressed = $true
+    $wb.IsWebBrowserContextMenuEnabled = $false
+    $wb.AllowWebBrowserDrop = $false
+    $wb.WebBrowserShortcutsEnabled = $true
+    # Sprungmarken im Inhaltsverzeichnis: scrollen statt neu laden
+    $wb.Add_Navigating({
+        $u = $_.Url
+        if ($u -and $u.Fragment) {
+            $_.Cancel = $true
+            try { $this.Document.GetElementById($u.Fragment.TrimStart('#')).ScrollIntoView($true) } catch { }
+        }
+    })
+    $af.Controls.Add($wb)
+    $wb.DocumentText = $AnleitungHtml
+    $script:Anleitung = $af
+    $af.Show()
+    $af.Activate()
+}
+
 function Start-Hintergrund([string]$Was) {
     # Startet eine Aktion in einem eigenen, unsichtbaren Prozess, damit das Fenster nicht haengt.
     try {
@@ -1543,6 +1717,7 @@ function Start-App([string]$Modus) {
         $symbol = [System.Drawing.SystemIcons]::Information
         if (Test-Path -LiteralPath $exe) { try { $symbol = [System.Drawing.Icon]::ExtractAssociatedIcon($exe) } catch { } }
 
+        $script:Symbol = $symbol
         $tray = New-Object System.Windows.Forms.NotifyIcon
         $tray.Icon = $symbol
         $tray.Text = 'Stundennachweis'
@@ -2459,7 +2634,12 @@ function Start-App([string]$Modus) {
             $tray.Visible = $false
             [System.Windows.Forms.Application]::Exit()
         })
-        $ef.Controls.AddRange(@($eTitel, $ePfad, $eSuchen, $eJahr, $eErgebnis, $ePruefen, $eSpeichern, $eAbbrechen, $eLinie, $eAuto, $eUpdate, $eVersion, $eDeinst) + $optionen)
+        $eAnleitung = New-Object System.Windows.Forms.Button
+        $eAnleitung.Text = 'Anleitung ...'
+        $eAnleitung.Location = New-Object System.Drawing.Point(120, 194)
+        $eAnleitung.Size = New-Object System.Drawing.Size(110, 32)
+        $eAnleitung.Add_Click({ Show-Anleitung })
+        $ef.Controls.AddRange(@($eTitel, $ePfad, $eSuchen, $eJahr, $eErgebnis, $ePruefen, $eSpeichern, $eAbbrechen, $eLinie, $eAuto, $eUpdate, $eVersion, $eDeinst, $eAnleitung) + $optionen)
         $ef.AcceptButton = $eSpeichern
         $ef.CancelButton = $eAbbrechen
 
@@ -2562,6 +2742,7 @@ function Start-App([string]$Modus) {
         [void]$menu.Items.Add(([char]0x00D6 + 'ffnen'), $null, { & $zeigen })
         [void]$menu.Items.Add(('Vom Handy ' + [char]0x00FC + 'bernehmen ...'), $null, { & $zeigeHandy })
         [void]$menu.Items.Add('Einstellungen ...', $null, { & $zeigeEinstellungen })
+        [void]$menu.Items.Add('Anleitung ...', $null, { Show-Anleitung })
         [void]$menu.Items.Add(('Excel-Datei ' + [char]0x00F6 + 'ffnen'), $null, {
             try { Start-Process -FilePath (Get-DateiFuerJahr (Get-Date).Year) } catch { Write-Protokoll "FEHLER: $($_.Exception.Message)" }
         })
