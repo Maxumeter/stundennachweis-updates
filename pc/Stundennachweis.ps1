@@ -95,6 +95,7 @@ function Get-Standardeinstellungen {
         TageRueckwirkend = 14; FensterSekunden = 30
         WochenendeUeberspringen = $true; FeiertageUeberspringen = $true
         HotspotBeimStart = $true; ExcelWarnungNachMinuten = 60
+        HotspotAusNachUebertragung = $true; HotspotAusVerzoegerungMinuten = 3
     }
 }
 
@@ -1633,6 +1634,25 @@ function Test-HotspotBeimStart {
     return -not ($Einst.PSObject.Properties['HotspotBeimStart'] -and $Einst.HotspotBeimStart -eq $false)
 }
 
+function Test-HotspotAusNachUebertragung {
+    # Standard: an. Hotspot nach einer Uebertragung vom Handy mit Verzoegerung ausschalten.
+    if ($Einst.PSObject.Properties['HotspotAusNachUebertragung']) { return [bool]$Einst.HotspotAusNachUebertragung }
+    return $true
+}
+
+function Get-HotspotAusVerzoegerung {
+    $m = 3
+    if ($Einst.HotspotAusVerzoegerungMinuten -and [int]$Einst.HotspotAusVerzoegerungMinuten -gt 0) { $m = [int]$Einst.HotspotAusVerzoegerungMinuten }
+    return $m
+}
+
+function Register-HotspotAus {
+    # Nach einer Uebertragung vom Handy: Hotspot nach der Verzoegerung ausschalten.
+    if (-not (Test-HotspotBeimStart) -or -not (Test-HotspotAusNachUebertragung)) { return }
+    if ($script:HotspotErledigt) { return }
+    $script:HotspotAusUm = (Get-Date).AddMinutes((Get-HotspotAusVerzoegerung))
+}
+
 function Invoke-HotspotStart {
     # Schaltet den PC-Hotspot ein (falls aus) und haelt ihn an.
     try {
@@ -1706,6 +1726,9 @@ function Start-App([string]$Modus) {
         Start-Hintergrundsync   # liegengebliebene Tage nachtragen
         # PC-Hotspot fuer den Datenaustausch mit der Handy-App oeffnen
         $script:LetzterHotspot = Get-Date
+        $script:HotspotAusUm = $null          # Zeitpunkt, zu dem der Hotspot nach einer Uebertragung aus soll
+        $script:HotspotErledigt = $false      # heute bereits nach Uebertragung ausgeschaltet
+        $script:HotspotTag = (Get-Date).Date
         if (Test-HotspotBeimStart) { Start-Hintergrund 'Hotspot' }
         # Reste eines Updates aufraeumen und nach einer neuen Version schauen
         Get-ChildItem -LiteralPath $PSScriptRoot -Recurse -Filter '*.alt' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -1822,8 +1845,22 @@ function Start-App([string]$Modus) {
             } else {
                 $script:ExcelGewarnt = $null
             }
-            # Hotspot alle 10 Minuten pruefen und notfalls wieder einschalten
-            if ((Test-HotspotBeimStart) -and ((Get-Date) - $script:LetzterHotspot).TotalMinutes -ge 10) {
+            # Neuer Tag: Hotspot wieder zulassen
+            if ((Get-Date).Date -ne $script:HotspotTag) {
+                $script:HotspotTag = (Get-Date).Date
+                $script:HotspotErledigt = $false
+                $script:HotspotAusUm = $null
+                if (Test-HotspotBeimStart) { $script:LetzterHotspot = Get-Date; Start-Hintergrund 'Hotspot' }
+            }
+            # Nach einer Uebertragung vom Handy: Hotspot mit Verzoegerung ausschalten
+            if ($script:HotspotAusUm -and (Get-Date) -ge $script:HotspotAusUm) {
+                $script:HotspotAusUm = $null
+                $script:HotspotErledigt = $true
+                Start-Hintergrund 'HotspotAus'
+                Write-Protokoll 'Hotspot nach der Uebertragung vom Handy ausgeschaltet.'
+            }
+            # Hotspot alle 10 Minuten pruefen und notfalls wieder einschalten (nicht, wenn bewusst aus)
+            if ((Test-HotspotBeimStart) -and -not $script:HotspotErledigt -and $null -eq $script:HotspotAusUm -and ((Get-Date) - $script:LetzterHotspot).TotalMinutes -ge 10) {
                 $script:LetzterHotspot = Get-Date
                 Start-Hintergrund 'Hotspot'
             }
@@ -2439,6 +2476,7 @@ function Start-App([string]$Modus) {
                 } else {
                     $hStatus.Text = ("Fertig - " + $neu.Count + " Tag(e) ${ue}bernommen:`r`n" + (Format-HandyTage $neu)) + "`r`nSie werden jetzt in die Excel-Datei eingetragen (sonst sp${ae}ter automatisch)." + "`r`nAb jetzt passiert das automatisch, sobald die App offen ist."
                     Start-Hintergrundsync
+                    Register-HotspotAus
                     $script:LetzterVersuch = Get-Date
                     if (-not $f.Visible) { & $ladeTag }
                     & $zeigeGesamt
@@ -2478,7 +2516,7 @@ function Start-App([string]$Modus) {
         $ef.MaximizeBox = $false; $ef.MinimizeBox = $false
         $ef.StartPosition = 'CenterScreen'
         $ef.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-        $ef.ClientSize = New-Object System.Drawing.Size(560, 520)
+        $ef.ClientSize = New-Object System.Drawing.Size(560, 580)
         $ef.Icon = $symbol
         $ef.TopMost = $true
 
@@ -2506,28 +2544,28 @@ function Start-App([string]$Modus) {
         $ePruefen.Size = New-Object System.Drawing.Size(100, 32)
         $eSpeichern = New-Object System.Windows.Forms.Button
         $eSpeichern.Text = 'Speichern'
-        $eSpeichern.Location = New-Object System.Drawing.Point(342, 476)
+        $eSpeichern.Location = New-Object System.Drawing.Point(342, 536)
         $eSpeichern.Size = New-Object System.Drawing.Size(100, 32)
         $eSpeichern.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
         $eAbbrechen = New-Object System.Windows.Forms.Button
         $eAbbrechen.Text = 'Abbrechen'
-        $eAbbrechen.Location = New-Object System.Drawing.Point(448, 476)
+        $eAbbrechen.Location = New-Object System.Drawing.Point(448, 536)
         $eAbbrechen.Size = New-Object System.Drawing.Size(100, 32)
         # Update aus GitHub
         $eLinie = New-Object System.Windows.Forms.Label
         $eLinie.BorderStyle = 'Fixed3D'
-        $eLinie.Location = New-Object System.Drawing.Point(12, 400)
+        $eLinie.Location = New-Object System.Drawing.Point(12, 460)
         $eLinie.Size = New-Object System.Drawing.Size(536, 2)
         $eAuto = New-Object System.Windows.Forms.CheckBox
         $eAuto.Text = 'Beim Start automatisch aktualisieren'
-        $eAuto.Location = New-Object System.Drawing.Point(12, 412)
+        $eAuto.Location = New-Object System.Drawing.Point(12, 472)
         $eAuto.AutoSize = $true
         $eUpdate = New-Object System.Windows.Forms.Button
         $eUpdate.Text = 'Jetzt nach Update suchen'
-        $eUpdate.Location = New-Object System.Drawing.Point(12, 476)
+        $eUpdate.Location = New-Object System.Drawing.Point(12, 536)
         $eUpdate.Size = New-Object System.Drawing.Size(190, 32)
         $eVersion = New-Object System.Windows.Forms.Label
-        $eVersion.Location = New-Object System.Drawing.Point(12, 442)
+        $eVersion.Location = New-Object System.Drawing.Point(12, 502)
         $eVersion.Size = New-Object System.Drawing.Size(536, 22)
         $eVersion.ForeColor = [System.Drawing.SystemColors]::GrayText
         $zeigeVersion = {
@@ -2581,7 +2619,11 @@ function Start-App([string]$Modus) {
         $oLSek     = New-EinstLabel ('Fenster automatisch schlie' + [char]0x00DF + 'en nach') 12 368
         $oSek      = New-EinstFeld 300 368 50
         $oLSek2    = New-EinstLabel 'Sekunden' 356 368
-        $optionen = @($eLinie2, $oLPause, $oPause, $oLPause6, $oPause6, $oProjekt, $oHotspot, $oWoche, $oFeier, $oLWarn, $oWarn, $oLWarn2, $oLSek, $oSek, $oLSek2)
+        $oHotAus   = New-EinstHaken ('Hotspot nach ' + [char]0x00DC + 'bertragung ausschalten') 12 398
+        $oLHotMin  = New-EinstLabel ('Verz' + [char]0x00F6 + 'gerung') 12 428
+        $oHotMin   = New-EinstFeld 300 428 50
+        $oLHotMin2 = New-EinstLabel 'Minuten' 356 428
+        $optionen = @($eLinie2, $oLPause, $oPause, $oLPause6, $oPause6, $oProjekt, $oHotspot, $oWoche, $oFeier, $oLWarn, $oWarn, $oLWarn2, $oLSek, $oSek, $oLSek2, $oHotAus, $oLHotMin, $oHotMin, $oLHotMin2)
 
         $ladeOptionen = {
             $o = Get-Einstellungen
@@ -2589,7 +2631,8 @@ function Start-App([string]$Modus) {
             $oProjekt.Checked = [bool]$o.ProjektstundenEintragen; $oHotspot.Checked = [bool]$o.HotspotBeimStart
             $oWoche.Checked = [bool]$o.WochenendeUeberspringen; $oFeier.Checked = [bool]$o.FeiertageUeberspringen
             $oWarn.Text = [string]$o.ExcelWarnungNachMinuten; $oSek.Text = [string]$o.FensterSekunden
-            foreach ($t in $oPause, $oPause6, $oWarn, $oSek) { $t.BackColor = [System.Drawing.SystemColors]::Window }
+            $oHotAus.Checked = [bool]$o.HotspotAusNachUebertragung; $oHotMin.Text = [string]$o.HotspotAusVerzoegerungMinuten
+            foreach ($t in $oPause, $oPause6, $oWarn, $oSek, $oHotMin) { $t.BackColor = [System.Drawing.SystemColors]::Window }
         }
         # Liefert $true, wenn alles gueltig war und gespeichert wurde
         $speichereOptionen = {
@@ -2597,7 +2640,7 @@ function Start-App([string]$Modus) {
             foreach ($t in $oPause, $oPause6) {
                 try { [void](ConvertTo-Zeitspanne $t.Text); $t.BackColor = [System.Drawing.SystemColors]::Window } catch { $t.BackColor = [System.Drawing.Color]::MistyRose; $ok = $false }
             }
-            foreach ($t in $oWarn, $oSek) {
+            foreach ($t in $oWarn, $oSek, $oHotMin) {
                 if ($t.Text.Trim() -match '^\d{1,4}$' -and [int]$t.Text.Trim() -gt 0) { $t.BackColor = [System.Drawing.SystemColors]::Window } else { $t.BackColor = [System.Drawing.Color]::MistyRose; $ok = $false }
             }
             if (-not $ok) { return $false }
@@ -2610,6 +2653,8 @@ function Start-App([string]$Modus) {
             $e4.Optionen['FeiertageUeberspringen'] = $oFeier.Checked
             $e4.Optionen['ExcelWarnungNachMinuten'] = [int]$oWarn.Text.Trim()
             $e4.Optionen['FensterSekunden'] = [int]$oSek.Text.Trim()
+            $e4.Optionen['HotspotAusNachUebertragung'] = $oHotAus.Checked
+            $e4.Optionen['HotspotAusVerzoegerungMinuten'] = [int]$oHotMin.Text.Trim()
             Save-FensterEinst $e4
             $script:Einst = Get-Einstellungen
             return $true
@@ -2617,7 +2662,7 @@ function Start-App([string]$Modus) {
 
         $eDeinst = New-Object System.Windows.Forms.Button
         $eDeinst.Text = 'Deinstallieren ...'
-        $eDeinst.Location = New-Object System.Drawing.Point(420, 408)
+        $eDeinst.Location = New-Object System.Drawing.Point(420, 468)
         $eDeinst.Size = New-Object System.Drawing.Size(128, 28)
         $eDeinst.Add_Click({
             $antwort = [System.Windows.Forms.MessageBox]::Show($ef,
@@ -2816,6 +2861,7 @@ function Start-App([string]$Modus) {
                 if ($neu.Count -gt 0) {
                     $tray.ShowBalloonTip(5000, 'Stundennachweis', ('Vom Handy ' + [char]0x00FC + 'bernommen: ' + (Format-HandyTage $neu)), 'Info')
                     Start-Hintergrundsync
+                    Register-HotspotAus
                     $script:LetzterVersuch = Get-Date
                     if (-not $f.Visible) { & $ladeTag }
                     & $zeigeGesamt
