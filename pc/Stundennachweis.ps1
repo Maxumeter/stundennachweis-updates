@@ -1090,10 +1090,29 @@ function Start-PcHotspot {
     return [pscustomobject]@{ Ssid = $cfg.Ssid; Passwort = $cfg.Passphrase }
 }
 
+function Get-HotspotManagerAktiv {
+    # Findet den Tethering-Manager, dessen Hotspot gerade an ist - ohne GetInternetConnectionProfile,
+    # das $null sein kann, wenn das Handy die einzige Verbindung ist / der PC gerade kein eigenes Internet hat.
+    $null = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
+    $null = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType = WindowsRuntime]
+    $typ = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager]
+    $an = [Windows.Networking.NetworkOperators.TetheringOperationalState]::On
+    try {
+        foreach ($pr in [Windows.Networking.Connectivity.NetworkInformation]::GetConnectionProfiles()) {
+            try { $tm = $typ::CreateFromConnectionProfile($pr); if ($tm -and $tm.TetheringOperationalState -eq $an) { return $tm } } catch { }
+        }
+    } catch { }
+    return $null
+}
+
 function Stop-PcHotspot {
-    $tm = Get-HotspotManager
-    if ($tm.TetheringOperationalState -eq [Windows.Networking.NetworkOperators.TetheringOperationalState]::On) {
-        [void](Invoke-WinRtWarten ($tm.StopTetheringAsync()) ([Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult]))
+    $tm = Get-HotspotManagerAktiv
+    if (-not $tm) { try { $tm = Get-HotspotManager } catch { } }   # Ausweg ueber die Internetverbindung
+    if ($tm -and $tm.TetheringOperationalState -eq [Windows.Networking.NetworkOperators.TetheringOperationalState]::On) {
+        $r = Invoke-WinRtWarten ($tm.StopTetheringAsync()) ([Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult])
+        if ($r -and $r.Status -ne [Windows.Networking.NetworkOperators.TetheringOperationStatus]::Success) {
+            throw "Windows hat den Hotspot nicht ausgeschaltet ($($r.Status) $($r.AdditionalErrorMessage))."
+        }
     }
     $script:HotspotVonUns = $false
 }
@@ -2944,7 +2963,8 @@ try {
     if ($Aktion -eq 'Update') { [void](Invoke-Update); return }
     if ($Aktion -eq 'Einrichten') { Invoke-Einrichtung; return }
     if ($Aktion -eq 'HotspotAus') {
-        try { Stop-PcHotspot; Remove-Item -LiteralPath $HotspotDatei -ErrorAction SilentlyContinue; Write-Protokoll 'PC-Hotspot ausgeschaltet.' } catch { }
+        try { Stop-PcHotspot; Remove-Item -LiteralPath $HotspotDatei -ErrorAction SilentlyContinue; Write-Protokoll 'PC-Hotspot ausgeschaltet.' }
+        catch { Write-Protokoll "PC-Hotspot ausschalten fehlgeschlagen: $($_.Exception.Message)" }
         return
     }
 
