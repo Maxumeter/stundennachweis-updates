@@ -52,6 +52,7 @@ $HotspotDatei = Join-Path $DatenOrdner 'hotspot.json'
 $ExcelStatusDatei = Join-Path $DatenOrdner 'excel-status.json'          # ob die Excel-Datei zuletzt beschreibbar war
 $UpdateStatusDatei = Join-Path $DatenOrdner 'update-status.json'        # Ergebnis der letzten Update-Pruefung
 $UpdateRepo = 'maxumeter/stundennachweis-updates'                      # oeffentlich, nur fertige Dateien - kein Token noetig
+$BluetoothDienst = '7b3e9a10-2c4d-4f8a-9b1e-5a6c7d8e9f01'              # RFCOMM-Dienst-Kennung (gleich wie in der App)
 $script:UpdateStand = 'main'   # Commit-Kennung des neuesten Stands (wird vor dem Laden ermittelt)
 $Z_GESAMT = 32   # Zeile "Gesamtstunden" (Projekte + Urlaub/Feiertag/Krankheit ...)
 
@@ -96,6 +97,7 @@ function Get-Standardeinstellungen {
         WochenendeUeberspringen = $true; FeiertageUeberspringen = $true
         HotspotBeimStart = $true; ExcelWarnungNachMinuten = 60
         HotspotAusNachUebertragung = $true; HotspotAusVerzoegerungMinuten = 3
+        BluetoothUebertragung = $true
     }
 }
 
@@ -1067,6 +1069,92 @@ function Invoke-WinRtWarten($Operation, [Type]$Ergebnis) {
     return $task.Result
 }
 
+function Wait-WinRtAktion($Aktion) {
+    Add-Type -AssemblyName System.Runtime.WindowsRuntime
+    $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
+        $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncAction' } | Select-Object -First 1
+    $task = $asTask.Invoke($null, @($Aktion))
+    [void]$task.Wait(20000)
+}
+
+function Test-BluetoothUebertragung {
+    if ($Einst.PSObject.Properties['BluetoothUebertragung']) { return [bool]$Einst.BluetoothUebertragung }
+    return $true
+}
+
+function Invoke-BtAnfrage($Service, [string]$Befehl) {
+    # Oeffnet eine frische RFCOMM-Verbindung, sendet eine Befehlszeile und liest die Antwortzeile.
+    # (Das Handy beantwortet pro Verbindung genau eine Zeile und schliesst dann.)
+    $sock = New-Object Windows.Networking.Sockets.StreamSocket
+    try {
+        Wait-WinRtAktion ($sock.ConnectAsync($Service.ConnectionHostName, $Service.ConnectionServiceName))
+        $writer = New-Object Windows.Storage.Streams.DataWriter($sock.OutputStream)
+        $writer.WriteBytes([System.Text.Encoding]::UTF8.GetBytes($Befehl + "`n"))
+        [void](Invoke-WinRtWarten ($writer.StoreAsync()) ([uint32]))
+        [void]$writer.DetachStream()
+        $reader = New-Object Windows.Storage.Streams.DataReader($sock.InputStream)
+        $reader.InputStreamOptions = [Windows.Storage.Streams.InputStreamOptions]::Partial
+        $bytes = New-Object System.Collections.Generic.List[byte]
+        $bis = (Get-Date).AddSeconds(15)
+        while ((Get-Date) -lt $bis) {
+            $n = Invoke-WinRtWarten ($reader.LoadAsync(1)) ([uint32])
+            if ($n -lt 1) { break }
+            $b = $reader.ReadByte()
+            if ($b -eq 10) { break }
+            [void]$bytes.Add($b)
+        }
+        [void]$reader.DetachStream()
+        return [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
+    } finally {
+        try { $sock.Dispose() } catch { }
+    }
+}
+
+function Invoke-BluetoothHolen {
+    # Holt die Daten vom gekoppelten Handy per Bluetooth (RFCOMM). Laeuft als eigener Hintergrundprozess.
+    $code = (Get-FensterEinst).HandyCode
+    if ($code -notmatch '^\d{6}$') { return }   # erst per WLAN koppeln (Code setzen)
+    $m = New-Object System.Threading.Mutex($false, 'Local\StundennachweisBluetooth')
+    $hat = $false
+    try { $hat = $m.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $hat = $true }
+    if (-not $hat) { return }
+    try {
+        $null = [Windows.Devices.Bluetooth.Rfcomm.RfcommDeviceService, Windows.Devices.Bluetooth, ContentType = WindowsRuntime]
+        $null = [Windows.Devices.Enumeration.DeviceInformation, Windows.Devices.Enumeration, ContentType = WindowsRuntime]
+        $null = [Windows.Networking.Sockets.StreamSocket, Windows.Networking.Sockets, ContentType = WindowsRuntime]
+        $null = [Windows.Storage.Streams.DataReader, Windows.Storage.Streams, ContentType = WindowsRuntime]
+        $null = [Windows.Storage.Streams.DataWriter, Windows.Storage.Streams, ContentType = WindowsRuntime]
+        $sid = [Windows.Devices.Bluetooth.Rfcomm.RfcommServiceId]::FromUuid([guid]$BluetoothDienst)
+        $sel = [Windows.Devices.Bluetooth.Rfcomm.RfcommDeviceService]::GetDeviceSelector($sid)
+        $geraete = Invoke-WinRtWarten ([Windows.Devices.Enumeration.DeviceInformation]::FindAllAsync($sel)) ([Windows.Devices.Enumeration.DeviceInformationCollection])
+        if (-not $geraete -or $geraete.Count -eq 0) { return }   # kein gekoppeltes Handy mit dem Dienst
+        foreach ($g in $geraete) {
+            try {
+                $svc = Invoke-WinRtWarten ([Windows.Devices.Bluetooth.Rfcomm.RfcommDeviceService]::FromIdAsync($g.Id)) ([Windows.Devices.Bluetooth.Rfcomm.RfcommDeviceService])
+                if (-not $svc) { continue }
+                $antwort = Invoke-BtAnfrage $svc ('DATEN ' + $code)
+                if (-not $antwort) { continue }
+                $daten = $antwort | ConvertFrom-Json
+                if ($daten.PSObject.Properties['fehler']) { Write-Protokoll 'Bluetooth: Der Code passt nicht zur App.'; return }
+                $neu = @(Import-HandyDaten $daten)
+                [void](Invoke-BtAnfrage $svc ('BESTAETIGEN ' + $code + ' ' + ($neu -join ',')))
+                if ($neu.Count -gt 0) {
+                    Write-Protokoll ('Per Bluetooth uebernommen: ' + ($neu -join ', '))
+                    Start-Hintergrundsync
+                }
+                return   # ein Geraet hat geantwortet - fertig
+            } catch {
+                Write-Protokoll "Bluetooth-Verbindung fehlgeschlagen: $($_.Exception.Message)"
+            }
+        }
+    } catch {
+        Write-Protokoll "Bluetooth: $($_.Exception.Message)"
+    } finally {
+        if ($hat) { $m.ReleaseMutex() }
+        $m.Dispose()
+    }
+}
+
 function Get-HotspotManager {
     $null = [Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType = WindowsRuntime]
     $null = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType = WindowsRuntime]
@@ -1542,6 +1630,7 @@ th { background: #eef4fa; }
 <li>Das Handy ist im WLAN des PCs: am einfachsten im <b>Hotspot des PCs</b> &ndash; den schaltet das Programm beim Start selbst ein. WLAN-Name und Passwort siehst du, wenn du mit der Maus &uuml;ber &bdquo;Hotspot an&ldquo; in der Statusleiste f&auml;hrst. Alternativ: gleiches WLAN oder Hotspot des Handys.</li>
 <li>PC und App sind einmal gekoppelt (Code, siehe 3).</li>
 </ul>
+<p><b>Per Bluetooth:</b> Zus&auml;tzlich kann das Handy die Daten per Bluetooth an den PC geben. Handy und PC daf&uuml;r einmal in den Bluetooth-Einstellungen beider Ger&auml;te koppeln; der PC holt die Daten dann automatisch ab. Ein- und ausschalten l&auml;sst sich das am PC unter &bdquo;Einstellungen&ldquo; (&bdquo;Auch per Bluetooth &uuml;bertragen&ldquo;).</p>
 <p>Der PC schaut alle 15 Sekunden nach. Danach siehst du in der App &bdquo;Alles beim PC&ldquo;, am PC den Hinweis &bdquo;Vom Handy &uuml;bernommen&ldquo;. &Uuml;bertragen werden Zeiten, Projektverteilung, Projektliste, Name und Personalnummer.</p>
 
 <h2 id="projekte">7. Projekte und Stunden</h2>
@@ -1745,6 +1834,7 @@ function Start-App([string]$Modus) {
         Start-Hintergrundsync   # liegengebliebene Tage nachtragen
         # PC-Hotspot fuer den Datenaustausch mit der Handy-App oeffnen
         $script:LetzterHotspot = Get-Date
+        $script:LetzteBt = [datetime]::MinValue
         $script:HotspotAusUm = $null          # Zeitpunkt, zu dem der Hotspot nach einer Uebertragung aus soll
         $script:HotspotErledigt = $false      # heute bereits nach Uebertragung ausgeschaltet
         $script:HotspotTag = (Get-Date).Date
@@ -1882,6 +1972,11 @@ function Start-App([string]$Modus) {
             if ((Test-HotspotBeimStart) -and -not $script:HotspotErledigt -and $null -eq $script:HotspotAusUm -and ((Get-Date) - $script:LetzterHotspot).TotalMinutes -ge 10) {
                 $script:LetzterHotspot = Get-Date
                 Start-Hintergrund 'Hotspot'
+            }
+            # Alle 60 Sekunden zusaetzlich per Bluetooth beim gekoppelten Handy nachsehen
+            if ((Test-BluetoothUebertragung) -and ((Get-Date) - $script:LetzteBt).TotalSeconds -ge 60) {
+                $script:LetzteBt = Get-Date
+                Start-Hintergrund 'BluetoothHolen'
             }
         })
 
@@ -2535,7 +2630,7 @@ function Start-App([string]$Modus) {
         $ef.MaximizeBox = $false; $ef.MinimizeBox = $false
         $ef.StartPosition = 'CenterScreen'
         $ef.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-        $ef.ClientSize = New-Object System.Drawing.Size(560, 580)
+        $ef.ClientSize = New-Object System.Drawing.Size(560, 610)
         $ef.Icon = $symbol
         $ef.TopMost = $true
 
@@ -2563,28 +2658,28 @@ function Start-App([string]$Modus) {
         $ePruefen.Size = New-Object System.Drawing.Size(100, 32)
         $eSpeichern = New-Object System.Windows.Forms.Button
         $eSpeichern.Text = 'Speichern'
-        $eSpeichern.Location = New-Object System.Drawing.Point(342, 536)
+        $eSpeichern.Location = New-Object System.Drawing.Point(342, 566)
         $eSpeichern.Size = New-Object System.Drawing.Size(100, 32)
         $eSpeichern.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
         $eAbbrechen = New-Object System.Windows.Forms.Button
         $eAbbrechen.Text = 'Abbrechen'
-        $eAbbrechen.Location = New-Object System.Drawing.Point(448, 536)
+        $eAbbrechen.Location = New-Object System.Drawing.Point(448, 566)
         $eAbbrechen.Size = New-Object System.Drawing.Size(100, 32)
         # Update aus GitHub
         $eLinie = New-Object System.Windows.Forms.Label
         $eLinie.BorderStyle = 'Fixed3D'
-        $eLinie.Location = New-Object System.Drawing.Point(12, 460)
+        $eLinie.Location = New-Object System.Drawing.Point(12, 490)
         $eLinie.Size = New-Object System.Drawing.Size(536, 2)
         $eAuto = New-Object System.Windows.Forms.CheckBox
         $eAuto.Text = 'Beim Start automatisch aktualisieren'
-        $eAuto.Location = New-Object System.Drawing.Point(12, 472)
+        $eAuto.Location = New-Object System.Drawing.Point(12, 502)
         $eAuto.AutoSize = $true
         $eUpdate = New-Object System.Windows.Forms.Button
         $eUpdate.Text = 'Jetzt nach Update suchen'
-        $eUpdate.Location = New-Object System.Drawing.Point(12, 536)
+        $eUpdate.Location = New-Object System.Drawing.Point(12, 566)
         $eUpdate.Size = New-Object System.Drawing.Size(190, 32)
         $eVersion = New-Object System.Windows.Forms.Label
-        $eVersion.Location = New-Object System.Drawing.Point(12, 502)
+        $eVersion.Location = New-Object System.Drawing.Point(12, 532)
         $eVersion.Size = New-Object System.Drawing.Size(536, 22)
         $eVersion.ForeColor = [System.Drawing.SystemColors]::GrayText
         $zeigeVersion = {
@@ -2642,7 +2737,8 @@ function Start-App([string]$Modus) {
         $oLHotMin  = New-EinstLabel ('Verz' + [char]0x00F6 + 'gerung') 12 428
         $oHotMin   = New-EinstFeld 300 428 50
         $oLHotMin2 = New-EinstLabel 'Minuten' 356 428
-        $optionen = @($eLinie2, $oLPause, $oPause, $oLPause6, $oPause6, $oProjekt, $oHotspot, $oWoche, $oFeier, $oLWarn, $oWarn, $oLWarn2, $oLSek, $oSek, $oLSek2, $oHotAus, $oLHotMin, $oHotMin, $oLHotMin2)
+        $oBt       = New-EinstHaken ('Auch per Bluetooth ' + [char]0x00FC + 'bertragen (gekoppeltes Handy)') 12 458
+        $optionen = @($eLinie2, $oLPause, $oPause, $oLPause6, $oPause6, $oProjekt, $oHotspot, $oWoche, $oFeier, $oLWarn, $oWarn, $oLWarn2, $oLSek, $oSek, $oLSek2, $oHotAus, $oLHotMin, $oHotMin, $oLHotMin2, $oBt)
 
         $ladeOptionen = {
             $o = Get-Einstellungen
@@ -2651,6 +2747,7 @@ function Start-App([string]$Modus) {
             $oWoche.Checked = [bool]$o.WochenendeUeberspringen; $oFeier.Checked = [bool]$o.FeiertageUeberspringen
             $oWarn.Text = [string]$o.ExcelWarnungNachMinuten; $oSek.Text = [string]$o.FensterSekunden
             $oHotAus.Checked = [bool]$o.HotspotAusNachUebertragung; $oHotMin.Text = [string]$o.HotspotAusVerzoegerungMinuten
+            $oBt.Checked = [bool]$o.BluetoothUebertragung
             foreach ($t in $oPause, $oPause6, $oWarn, $oSek, $oHotMin) { $t.BackColor = [System.Drawing.SystemColors]::Window }
         }
         # Liefert $true, wenn alles gueltig war und gespeichert wurde
@@ -2674,6 +2771,7 @@ function Start-App([string]$Modus) {
             $e4.Optionen['FensterSekunden'] = [int]$oSek.Text.Trim()
             $e4.Optionen['HotspotAusNachUebertragung'] = $oHotAus.Checked
             $e4.Optionen['HotspotAusVerzoegerungMinuten'] = [int]$oHotMin.Text.Trim()
+            $e4.Optionen['BluetoothUebertragung'] = $oBt.Checked
             Save-FensterEinst $e4
             $script:Einst = Get-Einstellungen
             return $true
@@ -2681,7 +2779,7 @@ function Start-App([string]$Modus) {
 
         $eDeinst = New-Object System.Windows.Forms.Button
         $eDeinst.Text = 'Deinstallieren ...'
-        $eDeinst.Location = New-Object System.Drawing.Point(420, 468)
+        $eDeinst.Location = New-Object System.Drawing.Point(420, 498)
         $eDeinst.Size = New-Object System.Drawing.Size(128, 28)
         $eDeinst.Add_Click({
             $antwort = [System.Windows.Forms.MessageBox]::Show($ef,
@@ -2961,6 +3059,7 @@ try {
     if ($Aktion -eq 'Beginn') { Start-App 'Zeigen'; return }
     if ($Aktion -eq 'Hotspot') { Invoke-HotspotStart; return }
     if ($Aktion -eq 'Update') { [void](Invoke-Update); return }
+    if ($Aktion -eq 'BluetoothHolen') { Invoke-BluetoothHolen; return }
     if ($Aktion -eq 'Einrichten') { Invoke-Einrichtung; return }
     if ($Aktion -eq 'HotspotAus') {
         try { Stop-PcHotspot; Remove-Item -LiteralPath $HotspotDatei -ErrorAction SilentlyContinue; Write-Protokoll 'PC-Hotspot ausgeschaltet.' }
