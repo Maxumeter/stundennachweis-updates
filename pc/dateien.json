@@ -6,11 +6,11 @@
     },
     {
       "pfad": "Stundennachweis.ps1",
-      "sha256": "fd33c2f81233924179deb23ddbbc8d68c48a10ddd4ed4d51cf422a455880bba3"
+      "sha256": "216a09f1a64f99b8ac8f15b04343fb1c1238bd86f97d4f2fce3421d60841e682"
     },
     {
       "pfad": "version.json",
-      "sha256": "e86edea6557654b15cab6129f0ab5de8c05865528750daaaf4f9c12a9e8b63f6"
+      "sha256": "ce3759651a69c20495a957d90aff7334522c9bc80e0b214c3cea94524027c16c"
     }
   ]
 }

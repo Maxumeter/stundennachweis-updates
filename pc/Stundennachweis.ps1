@@ -97,7 +97,7 @@ function Get-Standardeinstellungen {
         WochenendeUeberspringen = $true; FeiertageUeberspringen = $true
         HotspotBeimStart = $true; ExcelWarnungNachMinuten = 60
         HotspotAusNachUebertragung = $true; HotspotAusVerzoegerungMinuten = 3
-        BluetoothUebertragung = $true
+        Verbindung = 'BEIDES'
     }
 }
 
@@ -1077,10 +1077,16 @@ function Wait-WinRtAktion($Aktion) {
     [void]$task.Wait(20000)
 }
 
-function Test-BluetoothUebertragung {
-    if ($Einst.PSObject.Properties['BluetoothUebertragung']) { return [bool]$Einst.BluetoothUebertragung }
-    return $true
+function Get-Verbindung {
+    # 'WLAN', 'BT' oder 'BEIDES'
+    if ($Einst.PSObject.Properties['Verbindung'] -and $Einst.Verbindung) { return [string]$Einst.Verbindung }
+    # Uebernahme aus aelterer Einstellung
+    if ($Einst.PSObject.Properties['BluetoothUebertragung'] -and $Einst.BluetoothUebertragung -eq $false) { return 'WLAN' }
+    return 'BEIDES'
 }
+
+function Test-WlanUebertragung { return (Get-Verbindung) -ne 'BT' }
+function Test-BluetoothUebertragung { return (Get-Verbindung) -ne 'WLAN' }
 
 function Invoke-BtAnfrage($Service, [string]$Befehl) {
     # Oeffnet eine frische RFCOMM-Verbindung, sendet eine Befehlszeile und liest die Antwortzeile.
@@ -1838,7 +1844,7 @@ function Start-App([string]$Modus) {
         $script:HotspotAusUm = $null          # Zeitpunkt, zu dem der Hotspot nach einer Uebertragung aus soll
         $script:HotspotErledigt = $false      # heute bereits nach Uebertragung ausgeschaltet
         $script:HotspotTag = (Get-Date).Date
-        if (Test-HotspotBeimStart) { Start-Hintergrund 'Hotspot' }
+        if ((Test-WlanUebertragung) -and (Test-HotspotBeimStart)) { Start-Hintergrund 'Hotspot' }
         # Reste eines Updates aufraeumen und nach einer neuen Version schauen
         Get-ChildItem -LiteralPath $PSScriptRoot -Recurse -Filter '*.alt' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
         Remove-UpdateReste @()   # verstuemmelte Dateien frueherer Updates (alle echten Programmdateien haben laengere Namen)
@@ -1959,7 +1965,7 @@ function Start-App([string]$Modus) {
                 $script:HotspotTag = (Get-Date).Date
                 $script:HotspotErledigt = $false
                 $script:HotspotAusUm = $null
-                if (Test-HotspotBeimStart) { $script:LetzterHotspot = Get-Date; Start-Hintergrund 'Hotspot' }
+                if ((Test-WlanUebertragung) -and (Test-HotspotBeimStart)) { $script:LetzterHotspot = Get-Date; Start-Hintergrund 'Hotspot' }
             }
             # Nach einer Uebertragung vom Handy: Hotspot mit Verzoegerung ausschalten
             if ($script:HotspotAusUm -and (Get-Date) -ge $script:HotspotAusUm) {
@@ -1969,7 +1975,7 @@ function Start-App([string]$Modus) {
                 Write-Protokoll 'Hotspot nach der Uebertragung vom Handy ausgeschaltet.'
             }
             # Hotspot alle 10 Minuten pruefen und notfalls wieder einschalten (nicht, wenn bewusst aus)
-            if ((Test-HotspotBeimStart) -and -not $script:HotspotErledigt -and $null -eq $script:HotspotAusUm -and ((Get-Date) - $script:LetzterHotspot).TotalMinutes -ge 10) {
+            if ((Test-WlanUebertragung) -and (Test-HotspotBeimStart) -and -not $script:HotspotErledigt -and $null -eq $script:HotspotAusUm -and ((Get-Date) - $script:LetzterHotspot).TotalMinutes -ge 10) {
                 $script:LetzterHotspot = Get-Date
                 Start-Hintergrund 'Hotspot'
             }
@@ -2252,6 +2258,20 @@ function Start-App([string]$Modus) {
 
         $zeigeStatus = {
             # --- Hotspot
+            if (-not (Test-WlanUebertragung)) {
+                $sbHotspot.Text = 'WLAN aus (nur Bluetooth)'
+                $sbHotspot.ForeColor = [System.Drawing.SystemColors]::GrayText
+                $sbHotspot.ToolTipText = 'Verbindung steht in den Einstellungen auf "Nur Bluetooth".'
+                if ($script:HandyKontakt -and ((Get-Date) - $script:HandyKontakt).TotalSeconds -lt 120) {
+                    $sbHandy.Text = 'Handy: zuletzt ' + $script:HandyKontakt.ToString('HH:mm'); $sbHandy.ForeColor = [System.Drawing.Color]::DarkGreen
+                } else {
+                    $sbHandy.Text = 'Handy: per Bluetooth'; $sbHandy.ForeColor = [System.Drawing.SystemColors]::GrayText
+                }
+                $es = Get-ExcelStatus
+                if ($es -and $es.Status -eq 'ok') { $sbExcel.Text = 'Excel: ok'; $sbExcel.ForeColor = [System.Drawing.Color]::DarkGreen }
+                elseif ($es) { $sbExcel.Text = "Excel: $($es.Status)"; $sbExcel.ForeColor = [System.Drawing.Color]::DarkRed }
+                return
+            }
             $info = Get-HotspotInfo
             $an = $null; $geraete = $null
             try {
@@ -2737,8 +2757,13 @@ function Start-App([string]$Modus) {
         $oLHotMin  = New-EinstLabel ('Verz' + [char]0x00F6 + 'gerung') 12 428
         $oHotMin   = New-EinstFeld 300 428 50
         $oLHotMin2 = New-EinstLabel 'Minuten' 356 428
-        $oBt       = New-EinstHaken ('Auch per Bluetooth ' + [char]0x00FC + 'bertragen (gekoppeltes Handy)') 12 458
-        $optionen = @($eLinie2, $oLPause, $oPause, $oLPause6, $oPause6, $oProjekt, $oHotspot, $oWoche, $oFeier, $oLWarn, $oWarn, $oLWarn2, $oLSek, $oSek, $oLSek2, $oHotAus, $oLHotMin, $oHotMin, $oLHotMin2, $oBt)
+        $oLVerb    = New-EinstLabel 'Verbindung zum Handy:' 12 460
+        $oVerb     = New-Object System.Windows.Forms.ComboBox
+        $oVerb.DropDownStyle = 'DropDownList'
+        $oVerb.Location = New-Object System.Drawing.Point(190, 457)
+        $oVerb.Width = 230
+        [void]$oVerb.Items.AddRange(@('Nur WLAN', 'Nur Bluetooth', 'WLAN und Bluetooth'))
+        $optionen = @($eLinie2, $oLPause, $oPause, $oLPause6, $oPause6, $oProjekt, $oHotspot, $oWoche, $oFeier, $oLWarn, $oWarn, $oLWarn2, $oLSek, $oSek, $oLSek2, $oHotAus, $oLHotMin, $oHotMin, $oLHotMin2, $oLVerb, $oVerb)
 
         $ladeOptionen = {
             $o = Get-Einstellungen
@@ -2747,7 +2772,9 @@ function Start-App([string]$Modus) {
             $oWoche.Checked = [bool]$o.WochenendeUeberspringen; $oFeier.Checked = [bool]$o.FeiertageUeberspringen
             $oWarn.Text = [string]$o.ExcelWarnungNachMinuten; $oSek.Text = [string]$o.FensterSekunden
             $oHotAus.Checked = [bool]$o.HotspotAusNachUebertragung; $oHotMin.Text = [string]$o.HotspotAusVerzoegerungMinuten
-            $oBt.Checked = [bool]$o.BluetoothUebertragung
+            $v = if ($o.PSObject.Properties['Verbindung'] -and $o.Verbindung) { [string]$o.Verbindung } else { 'BEIDES' }
+            $oVerb.SelectedIndex = @{ 'WLAN' = 0; 'BT' = 1; 'BEIDES' = 2 }[$v]
+            if ($oVerb.SelectedIndex -lt 0) { $oVerb.SelectedIndex = 2 }
             foreach ($t in $oPause, $oPause6, $oWarn, $oSek, $oHotMin) { $t.BackColor = [System.Drawing.SystemColors]::Window }
         }
         # Liefert $true, wenn alles gueltig war und gespeichert wurde
@@ -2771,7 +2798,7 @@ function Start-App([string]$Modus) {
             $e4.Optionen['FensterSekunden'] = [int]$oSek.Text.Trim()
             $e4.Optionen['HotspotAusNachUebertragung'] = $oHotAus.Checked
             $e4.Optionen['HotspotAusVerzoegerungMinuten'] = [int]$oHotMin.Text.Trim()
-            $e4.Optionen['BluetoothUebertragung'] = $oBt.Checked
+            $e4.Optionen['Verbindung'] = @('WLAN', 'BT', 'BEIDES')[[math]::Max(0, $oVerb.SelectedIndex)]
             Save-FensterEinst $e4
             $script:Einst = Get-Einstellungen
             return $true
@@ -2937,6 +2964,10 @@ function Start-App([string]$Modus) {
             if ($script:AutoLaeuft) { return }
             $script:AutoLaeuft = $true
             try {
+                if (-not (Test-WlanUebertragung)) {
+                    if ($script:AutoSuche) { Stop-Verbindungsversuche $script:AutoSuche.Versuche; $script:AutoSuche = $null }
+                    return
+                }
                 if ($null -eq $script:AutoSuche) {
                     if (((Get-Date) - $script:LetzteAutoSuche).TotalSeconds -lt 15) { return }
                     $script:LetzteAutoSuche = Get-Date
