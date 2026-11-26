@@ -2502,6 +2502,22 @@ function Start-App([string]$Modus) {
         $hCode.Location = New-Object System.Drawing.Point(180, 168)
         $hCode.Width = 100
         $hCode.MaxLength = 6
+        $hCodeSpeichern = New-Object System.Windows.Forms.Button
+        $hCodeSpeichern.Text = 'Code speichern'
+        $hCodeSpeichern.Location = New-Object System.Drawing.Point(290, 166)
+        $hCodeSpeichern.Size = New-Object System.Drawing.Size(130, 26)
+        $hCodeSpeichern.Add_Click({
+            $c = $hCode.Text.Trim()
+            if ($c -notmatch '^\d{6}$') {
+                $hStatus.ForeColor = [System.Drawing.Color]::DarkRed
+                $hStatus.Text = 'Bitte den 6-stelligen Code aus der App eintragen.'
+                $hCode.Focus(); return
+            }
+            $feC = Get-FensterEinst; $feC.HandyCode = $c; Save-FensterEinst $feC
+            $script:AutoCodeFalsch = $false
+            $hStatus.ForeColor = [System.Drawing.Color]::DarkGreen
+            $hStatus.Text = 'Code gespeichert. Die ' + [char]0x00DC + 'bertragung (WLAN oder Bluetooth) l' + [char]0x00E4 + 'uft automatisch, sobald die App offen ist.'
+        })
         $hIpL = New-Object System.Windows.Forms.Label
         $hIpL.Text = 'Adresse (nur falls n' + $oe + 'tig):'
         $hIpL.Location = New-Object System.Drawing.Point(12, 205)
@@ -2531,7 +2547,7 @@ function Start-App([string]$Modus) {
         $hStatus.Location = New-Object System.Drawing.Point(12, 286)
         $hStatus.Size = New-Object System.Drawing.Size(446, 96)
 
-        $hf.Controls.AddRange(@($hInfo, $hHotspotTitel, $hAn, $hAus, $hEinst, $hHotspot, $hCodeL, $hCode, $hIpL, $hIp, $hHol, $hZu, $hHotspotAus, $hStatus))
+        $hf.Controls.AddRange(@($hInfo, $hHotspotTitel, $hAn, $hAus, $hEinst, $hHotspot, $hCodeL, $hCode, $hCodeSpeichern, $hIpL, $hIp, $hHol, $hZu, $hHotspotAus, $hStatus))
         # Hoehe des Hinweistexts an den Text anpassen und alles darunter entsprechend verschieben
         $noetig = $hInfo.GetPreferredSize((New-Object System.Drawing.Size($hInfo.Width, 0))).Height + 6
         $verschiebung = $noetig - $hInfo.Height
